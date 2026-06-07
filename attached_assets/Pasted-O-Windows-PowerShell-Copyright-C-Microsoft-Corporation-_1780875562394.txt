@@ -1,0 +1,109 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Sun Jun  7 08:35:22 PM -03 2026
+
+  System load:  0.0                Processes:             138
+  Usage of /:   13.7% of 97.27GB   Users logged in:       0
+  Memory usage: 20%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Sun Jun  7 18:11:05 2026 from 143.208.112.121
+root@vps-15458837:~# bash <(curl -sL https://central-share-hub.replit.app/api/download/install.sh)
+
+╔══════════════════════════════════════╗
+║         VPS Drive — Instalador       ║
+╚══════════════════════════════════════╝
+
+Este script instala e configura o VPS Drive na sua VPS.
+Requisitos: Ubuntu 20.04+ ou Debian 11+
+
+
+▶ Verificando sistema operacional...
+✓ Sistema compatível: Ubuntu 22.04.5 LTS
+
+Configuração da instalação
+Responda as perguntas abaixo (Enter = valor padrão entre colchetes):
+
+IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): 129.121.52.84
+
+O VPS Drive requer um banco de dados PostgreSQL.
+Exemplo de URL: postgresql://usuario:senha@localhost:5432/vpsdrive
+URL de conexão do PostgreSQL (DATABASE_URL): postgresql://vpsdrive:Vpsdrive2026@localhost:5432/vpsdrive
+⚠ Host é um endereço IP — HTTPS via Let's Encrypt requer um domínio. Continuando com HTTP.
+Pasta para guardar os arquivos [/data/vps-drive]:
+Porta do servidor interno [5000]:
+Pasta de instalação do app [/opt/vps-drive]:
+
+Defina as credenciais do usuário administrador (criadas automaticamente ao final):
+Nome do administrador: Rodolfo Lucas Lima
+E-mail do administrador: rodolfo@fineamin.com.br
+Senha do administrador (mín. 8 caracteres):
+✗ A senha deve ter pelo menos 8 caracteres.
+root@vps-15458837:~# bash <(curl -sL https://central-share-hub.replit.app/api/download/install.sh)
+
+╔══════════════════════════════════════╗
+║         VPS Drive — Instalador       ║
+╚══════════════════════════════════════╝
+
+Este script instala e configura o VPS Drive na sua VPS.
+Requisitos: Ubuntu 20.04+ ou Debian 11+
+
+
+▶ Verificando sistema operacional...
+✓ Sistema compatível: Ubuntu 22.04.5 LTS
+
+Configuração da instalação
+Responda as perguntas abaixo (Enter = valor padrão entre colchetes):
+
+IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): 129.121.52.84
+
+O VPS Drive requer um banco de dados PostgreSQL.
+Exemplo de URL: postgresql://usuario:senha@localhost:5432/vpsdrive
+URL de conexão do PostgreSQL (DATABASE_URL): postgresql://vpsdrive:Vpsdrive2026@localhost:5432/vpsdrive
+⚠ Host é um endereço IP — HTTPS via Let's Encrypt requer um domínio. Continuando com HTTP.
+Pasta para guardar os arquivos [/data/vps-drive]:
+Porta do servidor interno [5000]:
+Pasta de instalação do app [/opt/vps-drive]:
+
+Defina as credenciais do usuário administrador (criadas automaticamente ao final):
+Nome do administrador: Rodolfo Lucas Lima
+E-mail do administrador: rodolfo@fineamin.com.br
+Senha do administrador (mín. 8 caracteres):
+
+Resumo:
+  Host:              129.121.52.84
+  Banco de dados:    postgresql://vpsdrive:Vpsdrive2026@...
+  Armazenamento:     /data/vps-drive
+  Porta interna:     5000
+  Diretório do app:  /opt/vps-drive
+  Admin:             Rodolfo Lucas Lima <rodolfo@fineamin.com.br>
+  HTTPS:             Não (HTTP apenas)
+
+Confirmar instalação? [s/N]:
