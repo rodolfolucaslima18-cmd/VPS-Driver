@@ -154,12 +154,12 @@ fi
 # ── Localizar ou obter o código do app ────────────────────────
 step "Localizando código do VPS Drive..."
 
-# URL do repositório git injetada pelo servidor no momento do download.
-# Pode ser sobrescrita pela variável de ambiente VPS_DRIVE_REPO_URL.
+# URLs injetadas pelo servidor no momento do download do script
 DEFAULT_REPO_URL="__REPO_URL__"
+INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
 GIT_REPO="${VPS_DRIVE_REPO_URL:-$DEFAULT_REPO_URL}"
 
-# Detectar modo local: (1) executado de dentro do projeto, (2) INSTALL_DIR já existe
+# Detectar modo local: executado de dentro do projeto
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || echo "")"
 PROJECT_ROOT=""
 
@@ -180,27 +180,34 @@ if [[ -n "$PROJECT_ROOT" ]]; then
   fi
   ok "Código localizado em $INSTALL_DIR"
 elif [[ -f "$INSTALL_DIR/package.json" ]]; then
-  # Instalação prévia detectada — atualizar via git pull se possível
+  # Instalação prévia detectada — atualizar via download se possível
   echo "  Instalação detectada em $INSTALL_DIR"
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    cd "$INSTALL_DIR" && git pull --quiet
-    echo "  Código atualizado via git pull"
+  if [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
+    echo "  Atualizando código via $INSTALLER_BASE_URL..."
+    curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
+      | tar -xzf - --overwrite --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
+    echo "  Código atualizado"
   fi
-  ok "Usando código existente em $INSTALL_DIR"
-elif [[ -n "$GIT_REPO" ]]; then
-  # Modo remoto: clonar repositório configurado automaticamente
+  ok "Usando instalação existente em $INSTALL_DIR"
+elif [[ -n "$GIT_REPO" && "$GIT_REPO" != "__REPO_URL__" ]]; then
+  # Modo remoto via git
   echo "  Clonando repositório: $GIT_REPO"
   git clone "$GIT_REPO" "$INSTALL_DIR"
   ok "Repositório clonado em $INSTALL_DIR"
+elif [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
+  # Baixar o código diretamente do servidor que serviu este instalador
+  echo "  Baixando código de $INSTALLER_BASE_URL..."
+  mkdir -p "$INSTALL_DIR"
+  curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
+    | tar -xzf - --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
+  ok "Código extraído em $INSTALL_DIR"
 else
-  # Nenhuma fonte disponível — pedir ao usuário como último recurso
+  # Último recurso: pedir URL git manualmente
   echo ""
-  echo -e "${YELLOW}Código do projeto não encontrado localmente.${NC}"
-  echo -e "Configure a variável VPS_DRIVE_REPO_URL com a URL do seu repositório"
-  echo -e "e baixe novamente o instalador, ou execute de dentro do projeto."
+  echo -e "${YELLOW}Código do projeto não encontrado.${NC}"
   echo ""
   read -rp "URL do repositório git (ou Enter para cancelar): " MANUAL_REPO
-  [[ -z "$MANUAL_REPO" ]] && error "URL do repositório necessária. Cancele e tente novamente."
+  [[ -z "$MANUAL_REPO" ]] && error "URL do repositório necessária."
   git clone "$MANUAL_REPO" "$INSTALL_DIR"
   ok "Repositório clonado em $INSTALL_DIR"
 fi
