@@ -56,6 +56,25 @@ echo ""
 read -rp "IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): " VPS_HOST
 [[ -z "$VPS_HOST" ]] && error "O IP ou domínio é obrigatório."
 
+# Detectar se é IP ou domínio
+is_ip() {
+  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+USE_HTTPS=false
+CERTBOT_EMAIL=""
+if is_ip "$VPS_HOST"; then
+  warn "Host é um endereço IP — HTTPS via Let's Encrypt requer um domínio. Continuando com HTTP."
+else
+  echo ""
+  read -rp "Deseja configurar HTTPS com Let's Encrypt? (requer domínio apontado para esta VPS) [s/N]: " WANT_HTTPS
+  if [[ "${WANT_HTTPS,,}" == "s" ]]; then
+    read -rp "E-mail para notificações do Let's Encrypt: " CERTBOT_EMAIL
+    [[ -z "$CERTBOT_EMAIL" ]] && error "E-mail é obrigatório para o Certbot."
+    USE_HTTPS=true
+  fi
+fi
+
 read -rp "Pasta para guardar os arquivos [/data/vps-drive]: " STORAGE_PATH
 STORAGE_PATH="${STORAGE_PATH:-/data/vps-drive}"
 
@@ -81,6 +100,12 @@ echo "  Host:              $VPS_HOST"
 echo "  Armazenamento:     $STORAGE_PATH"
 echo "  Porta interna:     $APP_PORT"
 echo "  Diretório do app:  $INSTALL_DIR"
+if [[ "$USE_HTTPS" == "true" ]]; then
+  echo "  HTTPS:             Sim (Certbot / Let's Encrypt)"
+  echo "  E-mail Certbot:    $CERTBOT_EMAIL"
+else
+  echo "  HTTPS:             Não (HTTP apenas)"
+fi
 echo ""
 read -rp "Confirmar instalação? [s/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "s" ]] && { echo "Instalação cancelada."; exit 0; }
@@ -258,6 +283,31 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t 2>&1 && systemctl reload nginx
 ok "Nginx configurado e recarregado"
 
+# ── Certbot / HTTPS ───────────────────────────────────────────
+if [[ "$USE_HTTPS" == "true" ]]; then
+  step "Instalando Certbot e plugin Nginx..."
+  apt-get install -y -qq certbot python3-certbot-nginx
+  ok "Certbot instalado"
+
+  step "Obtendo certificado TLS para $VPS_HOST..."
+  certbot --nginx \
+    --non-interactive \
+    --agree-tos \
+    --redirect \
+    --email "$CERTBOT_EMAIL" \
+    -d "$VPS_HOST"
+  ok "Certificado emitido e Nginx reconfigurado com HTTPS"
+
+  # Renovação automática via cron (certbot post-install já cria timer systemd,
+  # mas adicionamos fallback cron para sistemas sem systemd timers)
+  if ! systemctl is-active --quiet certbot.timer 2>/dev/null; then
+    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --nginx") | crontab -
+    ok "Renovação automática agendada via cron"
+  else
+    ok "Renovação automática via systemd timer (certbot.timer) já ativa"
+  fi
+fi
+
 # ── Iniciar com PM2 ───────────────────────────────────────────
 step "Iniciando servidor com PM2..."
 pm2 stop vps-drive-api 2>/dev/null || true
@@ -282,6 +332,12 @@ fi
 ok "Servidor iniciado com PM2"
 
 # ── Mensagem final ───────────────────────────────────────────
+if [[ "$USE_HTTPS" == "true" ]]; then
+  PROTO="https"
+else
+  PROTO="http"
+fi
+
 echo -e "
 ${BOLD}${GREEN}╔══════════════════════════════════════════════════╗
 ║        ✅  Instalação concluída com sucesso!      ║
@@ -289,14 +345,12 @@ ${BOLD}${GREEN}╔════════════════════�
 
 ${BOLD}Próximos passos:${NC}
 
-  1. Abra no navegador: ${CYAN}http://$VPS_HOST/setup${NC}
+  1. Abra no navegador: ${CYAN}${PROTO}://$VPS_HOST/setup${NC}
   2. Crie o usuário administrador (nome, e-mail e senha)
-  3. Após criação, faça login em: ${CYAN}http://$VPS_HOST${NC}
+  3. Após criação, faça login em: ${CYAN}${PROTO}://$VPS_HOST${NC}
 
 ${BOLD}Comandos úteis:${NC}
   pm2 status                  — status do servidor
   pm2 logs vps-drive-api      — logs em tempo real
   pm2 restart vps-drive-api   — reiniciar o servidor
-
-${YELLOW}Dica: Para HTTPS com Let's Encrypt, consulte DEPLOY.md (seção 9).${NC}
 "
