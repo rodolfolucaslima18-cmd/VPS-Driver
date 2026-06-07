@@ -241,7 +241,10 @@ ok "Diretório criado: $STORAGE_PATH"
 
 # ── Instalar dependências ────────────────────────────────────
 step "Instalando dependências (pnpm install)..."
-pnpm install --frozen-lockfile 2>&1 | tail -3
+pnpm install --frozen-lockfile || {
+  echo "  pnpm install falhou. Tentando sem --frozen-lockfile..."
+  pnpm install
+}
 ok "Dependências instaladas"
 
 step "Aplicando schema do banco de dados..."
