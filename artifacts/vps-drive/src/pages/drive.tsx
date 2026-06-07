@@ -23,6 +23,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function formatTotalSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -294,18 +304,16 @@ export default function DrivePage() {
                 <div
                   key={file.path}
                   className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
-                  onDoubleClick={() => {
+                  onClick={(e) => {
+                    // Skip if clicking the action menu or rename input
+                    if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                     if (file.type === "directory") setCurrentPath(file.path);
                     else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
-                  }}
-                  onClick={(e) => {
-                    // single click on file = do nothing (double click downloads)
-                    // single click on folder = do nothing (double click navigates)
-                    e.stopPropagation();
                   }}
                 >
                   {/* Action menu button */}
                   <button
+                    data-nomenu
                     className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
                     onClick={(e) => { e.stopPropagation(); setOpenMenuPath(openMenuPath === file.path ? null : file.path); }}
                   >
@@ -315,10 +323,12 @@ export default function DrivePage() {
                   {/* Dropdown menu */}
                   {openMenuPath === file.path && (
                     <div
+                      data-nomenu
                       className="absolute top-8 right-1.5 z-20 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[120px]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
+                        data-nomenu
                         className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent transition-colors"
                         onClick={() => {
                           setOpenMenuPath(null);
@@ -330,6 +340,7 @@ export default function DrivePage() {
                         Rename
                       </button>
                       <button
+                        data-nomenu
                         className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-accent transition-colors"
                         onClick={() => { setOpenMenuPath(null); doDelete(file.path, file.name); }}
                       >
@@ -349,6 +360,7 @@ export default function DrivePage() {
                   {/* Name — inline rename or label */}
                   {renamingPath === file.path ? (
                     <input
+                      data-nomenu
                       ref={renameInputRef}
                       value={renamingValue}
                       onChange={(e) => setRenamingValue(e.target.value)}
@@ -361,9 +373,12 @@ export default function DrivePage() {
                     <span className="text-sm font-medium text-center w-full truncate px-1">{file.name}</span>
                   )}
 
-                  <span className="text-xs text-muted-foreground mt-0.5">
-                    {file.type === "directory" ? "Folder" : formatSize(file.size)}
-                  </span>
+                  <div className="flex flex-col items-center gap-0.5 mt-0.5">
+                    <span className="text-xs text-muted-foreground">
+                      {file.type === "directory" ? "Folder" : formatSize(file.size)}
+                    </span>
+                    <span className="text-xs text-muted-foreground/70">{formatDate(file.modifiedAt)}</span>
+                  </div>
                 </div>
               ))}
             </div>
