@@ -44,10 +44,12 @@ router.get("/download/project.tar.gz", (_req, res): void => {
   const excludes = [
     "--exclude=./node_modules",
     "--exclude=./.git",
+    "--exclude=./.cache",
+    "--exclude=./.local",
+    "--exclude=./storage",
     "--exclude=./artifacts/api-server/dist",
     "--exclude=./artifacts/vps-drive/dist",
     "--exclude=./artifacts/mockup-sandbox/dist",
-    "--exclude=./.local/state",
     "--exclude=./attached_assets",
   ];
 
