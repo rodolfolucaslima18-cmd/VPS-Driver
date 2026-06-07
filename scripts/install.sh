@@ -252,12 +252,27 @@ ok "Diretório criado: $STORAGE_PATH"
 
 # ── Instalar dependências ────────────────────────────────────
 step "Instalando dependências (pnpm install)..."
-# Garantir que pnpm.json existe (pnpm v11 ignora o campo "pnpm" em package.json)
+
+# Aprovar build scripts do esbuild para pnpm v10/v11
+# (pnpm v11 ignorou o campo "pnpm" em package.json — usamos múltiplas abordagens)
 echo '{"onlyBuiltDependencies":["esbuild"]}' > pnpm.json
-pnpm install --frozen-lockfile || {
-  echo "  pnpm install falhou. Tentando sem --frozen-lockfile..."
-  pnpm install
+# .npmrc: sintaxe de array suportada por versões mais recentes do pnpm
+if ! grep -q "onlyBuiltDependencies" .npmrc 2>/dev/null; then
+  echo "onlyBuiltDependencies[]=esbuild" >> .npmrc
+fi
+
+_pnpm_install() {
+  local out ec
+  out=$(pnpm install --frozen-lockfile 2>&1) || out=$(pnpm install 2>&1)
+  ec=$?
+  echo "$out" | grep -v "ERR_PNPM_IGNORED_BUILDS\|Run \"pnpm approve-builds\"" | tail -6
+  # Tratar ERR_PNPM_IGNORED_BUILDS como aviso — pacotes estão instalados de qualquer forma
+  if [ $ec -ne 0 ] && ! echo "$out" | grep -q "ERR_PNPM_IGNORED_BUILDS"; then
+    return $ec
+  fi
+  return 0
 }
+_pnpm_install
 ok "Dependências instaladas"
 
 step "Aplicando schema do banco de dados..."
