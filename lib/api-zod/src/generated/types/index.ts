@@ -8,6 +8,7 @@
 
 export * from './deleteItemParams';
 export * from './directoryInput';
+export * from './downloadFileParams';
 export * from './errorResponse';
 export * from './fileItem';
 export * from './fileItemType';

@@ -22,6 +22,7 @@ import type {
 import type {
   DeleteItemParams,
   DirectoryInput,
+  DownloadFileParams,
   ErrorResponse,
   FileItem,
   FileUploadInput,
@@ -282,6 +283,91 @@ export const useDeleteItem = <TError = ErrorType<ErrorResponse | void>,
       > => {
       return useMutation(getDeleteItemMutationOptions(options));
     }
+
+export const getDownloadFileUrl = (params: DownloadFileParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/files/download?${stringifiedParams}` : `/api/files/download`
+}
+
+/**
+ * Streams the file as a binary attachment. Use directly as a URL — not a JSON endpoint.
+ * @summary Download a file
+ */
+export const downloadFile = async (params: DownloadFileParams, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadFileUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadFileQueryKey = (params?: DownloadFileParams,) => {
+    return [
+    `/api/files/download`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getDownloadFileQueryOptions = <TData = Awaited<ReturnType<typeof downloadFile>>, TError = ErrorType<ErrorResponse | void>>(params: DownloadFileParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadFileQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadFile>>> = ({ signal }) => downloadFile(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadFile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadFileQueryResult = NonNullable<Awaited<ReturnType<typeof downloadFile>>>
+export type DownloadFileQueryError = ErrorType<ErrorResponse | void>
+
+
+/**
+ * @summary Download a file
+ */
+
+export function useDownloadFile<TData = Awaited<ReturnType<typeof downloadFile>>, TError = ErrorType<ErrorResponse | void>>(
+ params: DownloadFileParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadFileQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getUploadFilesUrl = () => {
 

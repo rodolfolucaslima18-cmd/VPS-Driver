@@ -163,7 +163,11 @@ router.post(
 
     const uploaded = await Promise.all(
       files.map(async (file) => {
-        const destPath = path.join(absDir, file.originalname);
+        // Security: strip any directory separators from the original filename
+        const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
+        // Re-validate final destination is still inside storage root
+        const destRelative = path.join(path.relative(STORAGE_ROOT, absDir), safeName);
+        const destPath = resolveStoragePath(destRelative);
         await fs.writeFile(destPath, file.buffer);
         const stats = await fs.stat(destPath);
         return buildFileItem(destPath, stats);

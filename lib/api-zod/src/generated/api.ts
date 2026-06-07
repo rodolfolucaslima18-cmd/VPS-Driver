@@ -45,6 +45,15 @@ export const DeleteItemQueryParams = zod.object({
 
 
 /**
+ * Streams the file as a binary attachment. Use directly as a URL — not a JSON endpoint.
+ * @summary Download a file
+ */
+export const DownloadFileQueryParams = zod.object({
+  "path": zod.coerce.string().describe('File path relative to storage root')
+})
+
+
+/**
  * @summary Upload files to a directory
  */
 export const UploadFilesBody = zod.object({

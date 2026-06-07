@@ -81,3 +81,10 @@ export type DeleteItemParams = {
 path: string;
 };
 
+export type DownloadFileParams = {
+/**
+ * File path relative to storage root
+ */
+path: string;
+};
+

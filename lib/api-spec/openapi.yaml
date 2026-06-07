@@ -82,6 +82,38 @@ paths:
         "404":
           description: Not found
 
+  /files/download:
+    get:
+      operationId: downloadFile
+      tags: [files]
+      summary: Download a file
+      description: Streams the file as a binary attachment. Use directly as a URL — not a JSON endpoint.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: File path relative to storage root
+      responses:
+        "200":
+          description: File binary stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
   /files/upload:
     post:
       operationId: uploadFiles
