@@ -241,6 +241,8 @@ ok "Diretório criado: $STORAGE_PATH"
 
 # ── Instalar dependências ────────────────────────────────────
 step "Instalando dependências (pnpm install)..."
+# Garantir que pnpm.json existe (pnpm v11 ignora o campo "pnpm" em package.json)
+echo '{"onlyBuiltDependencies":["esbuild"]}' > pnpm.json
 pnpm install --frozen-lockfile || {
   echo "  pnpm install falhou. Tentando sem --frozen-lockfile..."
   pnpm install
