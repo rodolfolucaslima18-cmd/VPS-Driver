@@ -14,6 +14,7 @@ import {
   Crown,
   Eye,
   EyeOff,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -68,6 +69,9 @@ export default function AdminPage() {
   const [form, setForm] = useState<CreateUserForm>({ name: "", email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
     queryKey: ["admin", "users"],
@@ -117,6 +121,23 @@ export default function AdminPage() {
     },
   });
 
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ userId, password }: { userId: string; password: string }) =>
+      apiFetch(`/api/admin/users/${userId}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({ password }),
+      }),
+    onSuccess: (res: { message?: string }) => {
+      toast({ title: "Senha redefinida", description: res.message });
+      setResetPasswordUserId(null);
+      setResetPasswordValue("");
+      setShowResetPassword(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Erro ao redefinir senha", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleCreate = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -131,8 +152,84 @@ export default function AdminPage() {
     !isLoading &&
     (error instanceof Error ? error.message.includes("Apenas o usuário Master") : false);
 
+  const resetUserName = data?.users.find((u) => u.id === resetPasswordUserId)?.name ?? "";
+
   return (
     <div className="flex h-screen bg-background text-foreground">
+      {/* Reset password modal */}
+      {resetPasswordUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-primary shrink-0" />
+              <div>
+                <h2 className="text-sm font-semibold">Redefinir senha</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Usuário: <span className="font-medium text-foreground">{resetUserName}</span>
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!resetPasswordUserId || resetPasswordValue.length < 8) return;
+                resetPasswordMutation.mutate({ userId: resetPasswordUserId, password: resetPasswordValue });
+              }}
+              className="space-y-3"
+            >
+              <div className="relative">
+                <input
+                  type={showResetPassword ? "text" : "password"}
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  placeholder="Nova senha (mín. 8 caracteres)"
+                  required
+                  minLength={8}
+                  autoFocus
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 pr-9 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showResetPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={resetPasswordMutation.isPending}
+                  onClick={() => {
+                    setResetPasswordUserId(null);
+                    setResetPasswordValue("");
+                    setShowResetPassword(false);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={resetPasswordMutation.isPending || resetPasswordValue.length < 8}
+                >
+                  {resetPasswordMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    "Salvar senha"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className="w-60 border-r border-border bg-card/50 flex flex-col shrink-0">
         <div className="h-14 px-4 flex items-center gap-2 border-b border-border">
@@ -377,6 +474,21 @@ export default function AdminPage() {
                                         Suspender
                                       </>
                                     )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs gap-1"
+                                    disabled={isPending}
+                                    onClick={() => {
+                                      setResetPasswordUserId(u.id);
+                                      setResetPasswordValue("");
+                                      setShowResetPassword(false);
+                                    }}
+                                    title="Redefinir senha"
+                                  >
+                                    <KeyRound className="w-3 h-3" />
+                                    Redefinir senha
                                   </Button>
                                   <Button
                                     size="sm"
