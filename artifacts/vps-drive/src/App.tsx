@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
+import { ptBR } from "@clerk/localizations";
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -155,14 +156,19 @@ function ClerkProviderWithRoutes() {
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
       localization={{
+        ...ptBR,
         signIn: {
+          ...ptBR.signIn,
           start: {
+            ...(ptBR.signIn as Record<string, unknown>)?.["start"] as object,
             title: "Bem-vindo ao VPS Drive",
             subtitle: "Entre para acessar seus arquivos",
           },
         },
         signUp: {
+          ...ptBR.signUp,
           start: {
+            ...(ptBR.signUp as Record<string, unknown>)?.["start"] as object,
             title: "Crie sua conta",
             subtitle: "Seus arquivos. Seu servidor.",
           },
