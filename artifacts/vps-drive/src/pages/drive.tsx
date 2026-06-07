@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
-  Pencil, Trash2, MoreVertical, FolderPlus, X, Check
+  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users
 } from "lucide-react";
 import { useClerk } from "@clerk/react";
+import { useLocation } from "wouter";
 import {
   useListFiles, useGetStorageStats,
   getListFilesQueryKey, getGetStorageStatsQueryKey,
@@ -81,6 +82,7 @@ export default function DrivePage() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const { signOut } = useClerk();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
   const { data: files, isLoading } = useListFiles({ path: currentPath });
@@ -248,7 +250,11 @@ export default function DrivePage() {
           </div>
         </div>
 
-        <div className="p-3 border-t border-border">
+        <div className="p-3 border-t border-border space-y-1">
+          <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setLocation("/admin")}>
+            <Users className="w-4 h-4 mr-2" />
+            Administração
+          </Button>
           <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => signOut({ redirectUrl: "/" })}>
             <LogOut className="w-4 h-4 mr-2" />
             Sair

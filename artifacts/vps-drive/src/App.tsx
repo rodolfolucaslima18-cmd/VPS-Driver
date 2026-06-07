@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "./pages/landing";
 import DrivePage from "./pages/drive";
 import SetupPage from "./pages/setup";
+import AdminPage from "./pages/admin";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -124,6 +125,19 @@ function DriveRoute() {
   );
 }
 
+function AdminRoute() {
+  return (
+    <>
+      <Show when="signed-in">
+        <AdminPage />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/" />
+      </Show>
+    </>
+  );
+}
+
 function ClerkQueryClientCacheInvalidator() {
   const { addListener } = useClerk();
   const queryClient = useQueryClient();
@@ -183,6 +197,7 @@ function ClerkProviderWithRoutes() {
         <Switch>
           <Route path="/" component={HomeRedirect} />
           <Route path="/drive/*?" component={DriveRoute} />
+          <Route path="/admin" component={AdminRoute} />
           <Route path="/setup" component={SetupPage} />
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
