@@ -32,7 +32,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString();
+  return new Date(iso).toLocaleString("pt-BR");
 }
 
 function getPreviewKind(mimeType: string | null): "image" | "video" | "pdf" | "text" | "unsupported" {
@@ -82,7 +82,7 @@ function TextPreview({ file }: { file: FileItem }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-        Loading…
+        Carregando…
       </div>
     );
   }
@@ -90,7 +90,7 @@ function TextPreview({ file }: { file: FileItem }) {
   if (error) {
     return (
       <div className="flex items-center justify-center h-40 text-destructive text-sm">
-        Failed to load file content.
+        Erro ao carregar o arquivo.
       </div>
     );
   }
@@ -99,8 +99,8 @@ function TextPreview({ file }: { file: FileItem }) {
     return (
       <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground text-sm">
         <File className="w-8 h-8 opacity-40" />
-        <p>File is too large to preview (over 200 KB).</p>
-        <p className="text-xs">Download the file to view its contents.</p>
+        <p>Arquivo muito grande para visualizar (acima de 200 KB).</p>
+        <p className="text-xs">Baixe o arquivo para ver o conteúdo completo.</p>
       </div>
     );
   }
@@ -146,7 +146,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                 >
                   <a href={downloadUrl} download={file.name}>
                     <Download className="w-3.5 h-3.5 mr-1.5" />
-                    Download
+                    Baixar
                   </a>
                 </Button>
               </div>
@@ -171,7 +171,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                     className="max-w-full max-h-[calc(100vh-200px)]"
                   >
                     <source src={previewUrl} type={file.mimeType ?? undefined} />
-                    Your browser does not support the video tag.
+                    Seu navegador não suporta reprodução de vídeo.
                   </video>
                 </div>
               )}
@@ -198,13 +198,13 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                     <p className="text-sm mt-1">{formatSize(file.size)}</p>
                     <p className="text-xs mt-0.5">{formatDate(file.modifiedAt)}</p>
                     <p className="text-sm mt-3 text-muted-foreground">
-                      This file type cannot be previewed.
+                      Este tipo de arquivo não pode ser visualizado no navegador.
                     </p>
                   </div>
                   <Button variant="outline" asChild>
                     <a href={downloadUrl} download={file.name}>
                       <Download className="w-4 h-4 mr-2" />
-                      Download file
+                      Baixar arquivo
                     </a>
                   </Button>
                 </div>

@@ -121,7 +121,7 @@ export default function DrivePage() {
   const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList);
-    setUploadProgress(`Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`);
+    setUploadProgress(`Enviando ${files.length} arquivo${files.length > 1 ? "s" : ""}…`);
     try {
       await uploadMutation.mutateAsync({
         data: {
@@ -130,9 +130,9 @@ export default function DrivePage() {
         },
       });
       invalidate();
-      toast({ title: "Upload complete", description: `${files.length} file(s) uploaded.` });
+      toast({ title: "Envio concluído", description: `${files.length} arquivo(s) enviado(s).` });
     } catch {
-      toast({ title: "Upload failed", description: "Could not upload files.", variant: "destructive" });
+      toast({ title: "Falha no envio", description: "Não foi possível enviar os arquivos.", variant: "destructive" });
     } finally {
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -146,9 +146,9 @@ export default function DrivePage() {
     try {
       await mkdirMutation.mutateAsync({ data: { path: fullPath } });
       invalidate();
-      toast({ title: "Folder created" });
+      toast({ title: "Pasta criada" });
     } catch {
-      toast({ title: "Could not create folder", variant: "destructive" });
+      toast({ title: "Não foi possível criar a pasta", variant: "destructive" });
     } finally {
       setNewFolderMode(false);
       setNewFolderName("");
@@ -156,13 +156,13 @@ export default function DrivePage() {
   }, [newFolderName, currentPath, mkdirMutation, invalidate, toast]);
 
   const doDelete = useCallback(async (path: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    if (!confirm(`Excluir "${name}"? Esta ação não pode ser desfeita.`)) return;
     try {
       await deleteMutation.mutateAsync({ params: { path } } as never);
       invalidate();
-      toast({ title: "Deleted", description: name });
+      toast({ title: "Excluído", description: name });
     } catch {
-      toast({ title: "Could not delete", variant: "destructive" });
+      toast({ title: "Não foi possível excluir", variant: "destructive" });
     }
   }, [deleteMutation, invalidate, toast]);
 
@@ -176,9 +176,9 @@ export default function DrivePage() {
     try {
       await renameMutation.mutateAsync({ data: { oldPath: renamingPath, newPath } });
       invalidate();
-      toast({ title: "Renamed" });
+      toast({ title: "Renomeado" });
     } catch {
-      toast({ title: "Could not rename", variant: "destructive" });
+      toast({ title: "Não foi possível renomear", variant: "destructive" });
     } finally {
       setRenamingPath(null);
       setRenamingValue("");
@@ -214,26 +214,26 @@ export default function DrivePage() {
         <div className="p-4 flex-1 overflow-auto">
           <div className="space-y-5">
             <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Storage</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Armazenamento</p>
               <div className="text-2xl font-bold tracking-tight">
                 {stats ? formatTotalSize(stats.totalSize) : <Skeleton className="h-8 w-24" />}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 {stats
-                  ? `${stats.totalFiles} files · ${stats.totalDirectories} folders`
+                  ? `${stats.totalFiles} arquivos · ${stats.totalDirectories} pastas`
                   : <Skeleton className="h-4 w-32" />}
               </p>
             </div>
 
             {stats && stats.recentFiles.length > 0 && (
               <div className="pt-4 border-t border-border">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Recent</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Recentes</p>
                 <div className="space-y-1">
                   {stats.recentFiles.slice(0, 5).map((f) => (
                     <button
                       key={f.path}
                       onClick={() => {
-                        if (isPreviewable(f.mimeType)) setPreviewItem(f as FileItem);
+                        if (isPreviewable(f.mimeType ?? null)) setPreviewItem(f as FileItem);
                         else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank");
                       }}
                       className="w-full text-left flex items-center gap-2 py-1 px-1 rounded text-sm hover:bg-accent/60 transition-colors"
@@ -251,7 +251,7 @@ export default function DrivePage() {
         <div className="p-3 border-t border-border">
           <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => signOut({ redirectUrl: "/" })}>
             <LogOut className="w-4 h-4 mr-2" />
-            Sign out
+            Sair
           </Button>
         </div>
       </div>
@@ -267,7 +267,7 @@ export default function DrivePage() {
         <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-card/50 backdrop-blur-sm shrink-0">
           <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground min-w-0">
             <button className="hover:text-foreground transition-colors shrink-0" onClick={() => setCurrentPath("")}>
-              Root
+              Início
             </button>
             {breadcrumbs.map((part, i) => (
               <div key={i} className="flex items-center gap-1 min-w-0">
@@ -288,11 +288,11 @@ export default function DrivePage() {
             )}
             <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setNewFolderMode(true)}>
               <FolderPlus className="w-3.5 h-3.5" />
-              New Folder
+              Nova Pasta
             </Button>
             <Button size="sm" className="h-8 gap-1.5" onClick={() => fileInputRef.current?.click()}>
               <Upload className="w-3.5 h-3.5" />
-              Upload
+              Enviar
             </Button>
           </div>
         </div>
@@ -302,8 +302,8 @@ export default function DrivePage() {
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary pointer-events-none m-2 rounded-xl">
             <div className="text-center">
               <Upload className="w-12 h-12 text-primary mx-auto mb-2" />
-              <p className="text-lg font-semibold text-primary">Drop to upload</p>
-              <p className="text-sm text-muted-foreground">Files will be added to the current folder</p>
+              <p className="text-lg font-semibold text-primary">Solte para enviar</p>
+              <p className="text-sm text-muted-foreground">Os arquivos serão adicionados à pasta atual</p>
             </div>
           </div>
         )}
@@ -319,7 +319,7 @@ export default function DrivePage() {
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") doMkdir(); if (e.key === "Escape") { setNewFolderMode(false); setNewFolderName(""); } }}
-                placeholder="Folder name"
+                placeholder="Nome da pasta"
                 className="bg-transparent border-none outline-none text-sm w-40"
               />
               <button onClick={doMkdir} className="text-primary hover:text-primary/80"><Check className="w-4 h-4" /></button>
@@ -343,7 +343,7 @@ export default function DrivePage() {
                     // Skip if clicking the action menu or rename input
                     if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                     if (file.type === "directory") setCurrentPath(file.path);
-                    else if (isPreviewable(file.mimeType)) setPreviewItem(file as FileItem);
+                    else if (isPreviewable(file.mimeType ?? null)) setPreviewItem(file as FileItem);
                     else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                   }}
                 >
@@ -373,7 +373,7 @@ export default function DrivePage() {
                         }}
                       >
                         <Pencil className="w-3.5 h-3.5" />
-                        Rename
+                        Renomear
                       </button>
                       <button
                         data-nomenu
@@ -381,7 +381,7 @@ export default function DrivePage() {
                         onClick={() => { setOpenMenuPath(null); doDelete(file.path, file.name); }}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        Delete
+                        Excluir
                       </button>
                     </div>
                   )}
@@ -411,7 +411,7 @@ export default function DrivePage() {
 
                   <div className="flex flex-col items-center gap-0.5 mt-0.5">
                     <span className="text-xs text-muted-foreground">
-                      {file.type === "directory" ? "Folder" : formatSize(file.size)}
+                      {file.type === "directory" ? "Pasta" : formatSize(file.size)}
                     </span>
                     <span className="text-xs text-muted-foreground/70">{formatDate(file.modifiedAt)}</span>
                   </div>
@@ -424,12 +424,12 @@ export default function DrivePage() {
                 <HardDrive className="w-10 h-10 opacity-40" />
               </div>
               <div>
-                <p className="font-semibold text-foreground">This folder is empty</p>
-                <p className="text-sm mt-0.5">Drop files here or click Upload</p>
+                <p className="font-semibold text-foreground">Esta pasta está vazia</p>
+                <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="w-3.5 h-3.5 mr-1.5" />
-                Upload files
+                Enviar arquivos
               </Button>
             </div>
           )}

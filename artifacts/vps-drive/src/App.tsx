@@ -157,14 +157,14 @@ function ClerkProviderWithRoutes() {
       localization={{
         signIn: {
           start: {
-            title: "Welcome to VPS Drive",
-            subtitle: "Sign in to access your files",
+            title: "Bem-vindo ao VPS Drive",
+            subtitle: "Entre para acessar seus arquivos",
           },
         },
         signUp: {
           start: {
-            title: "Create your account",
-            subtitle: "Your files. Your server.",
+            title: "Crie sua conta",
+            subtitle: "Seus arquivos. Seu servidor.",
           },
         },
       }}
