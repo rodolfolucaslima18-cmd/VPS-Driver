@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import LandingPage from "./pages/landing";
 import DrivePage from "./pages/drive";
+import SetupPage from "./pages/setup";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -182,6 +183,7 @@ function ClerkProviderWithRoutes() {
         <Switch>
           <Route path="/" component={HomeRedirect} />
           <Route path="/drive/*?" component={DriveRoute} />
+          <Route path="/setup" component={SetupPage} />
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
           <Route component={NotFound} />
