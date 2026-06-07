@@ -9,6 +9,7 @@ import {
   resolveStoragePath,
   buildFileItem,
   getStorageStats,
+  getMimeType,
 } from "../lib/storage";
 import { requireAuth } from "../middlewares/requireAuth";
 import {
@@ -269,6 +270,82 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
 
   await fs.rm(absPath, { recursive: true, force: true });
   res.sendStatus(204);
+});
+
+// GET /files/preview — serve file inline for browser preview
+router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
+  const rawPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!rawPath) {
+    res.status(400).json({ error: "Missing path" });
+    return;
+  }
+
+  let absPath: string;
+  try {
+    absPath = resolveStoragePath(rawPath);
+  } catch {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(absPath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  let stats: import("fs").Stats;
+  try {
+    stats = await fs.stat(absPath);
+  } catch {
+    res.status(500).json({ error: "Cannot stat file" });
+    return;
+  }
+
+  if (stats.isDirectory()) {
+    res.status(400).json({ error: "Cannot preview a directory" });
+    return;
+  }
+
+  const mimeType = getMimeType(absPath);
+
+  const TEXT_MIME_PREFIXES = ["text/"];
+  const TEXT_MIME_TYPES = [
+    "application/json",
+    "application/javascript",
+    "application/xml",
+    "image/svg+xml",
+  ];
+  const TEXT_LIMIT = 200 * 1024; // 200 KB
+
+  const isText =
+    TEXT_MIME_PREFIXES.some((p) => mimeType.startsWith(p)) ||
+    TEXT_MIME_TYPES.includes(mimeType);
+
+  if (isText) {
+    const fileSize = stats.size;
+    if (fileSize > TEXT_LIMIT) {
+      res.status(200).json({ truncated: true, size: fileSize });
+      return;
+    }
+    const content = await fs.readFile(absPath, "utf-8");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", "inline");
+    res.send(content);
+    return;
+  }
+
+  // Binary: stream inline
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", "inline");
+  res.setHeader("Content-Length", stats.size);
+
+  const stream = createReadStream(absPath);
+  stream.on("error", () => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Error reading file" });
+    }
+  });
+  stream.pipe(res);
 });
 
 // GET /files/stats — storage statistics

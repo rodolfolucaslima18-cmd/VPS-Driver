@@ -199,6 +199,33 @@ paths:
         "404":
           description: Not found
 
+  /files/preview:
+    get:
+      operationId: previewFile
+      tags: [files]
+      summary: Preview a file inline
+      description: Serves the file with its correct Content-Type and no Content-Disposition attachment header, suitable for inline browser preview. For text files over 200 KB, returns a JSON object with `{ truncated: true, size: number }` instead of the file content.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: File path relative to storage root
+      responses:
+        "200":
+          description: File content inline or truncation notice
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
   /files/stats:
     get:
       operationId: getStorageStats

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
-  HardDrive, Folder, File, Upload, Plus, LogOut, ChevronRight,
+  HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check
 } from "lucide-react";
 import { useClerk } from "@clerk/react";
@@ -13,8 +13,34 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { FilePreviewSheet } from "@/components/FilePreviewSheet";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type FileItem = {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size: number;
+  modifiedAt: string;
+  mimeType: string | null;
+};
+
+const IMAGE_TYPES = ["image/jpeg","image/png","image/gif","image/webp","image/svg+xml","image/bmp"];
+const VIDEO_TYPES = ["video/mp4","video/webm","video/quicktime"];
+const TEXT_PREFIXES = ["text/"];
+const TEXT_MIME_TYPES = ["application/json","application/javascript","application/xml"];
+
+function isPreviewable(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  return (
+    IMAGE_TYPES.includes(mimeType) ||
+    VIDEO_TYPES.includes(mimeType) ||
+    mimeType === "application/pdf" ||
+    TEXT_PREFIXES.some((p) => mimeType.startsWith(p)) ||
+    TEXT_MIME_TYPES.includes(mimeType)
+  );
+}
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return "—";
@@ -49,6 +75,7 @@ export default function DrivePage() {
   const [renamingValue, setRenamingValue] = useState("");
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -166,6 +193,8 @@ export default function DrivePage() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
+      <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} />
+
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -203,7 +232,10 @@ export default function DrivePage() {
                   {stats.recentFiles.slice(0, 5).map((f) => (
                     <button
                       key={f.path}
-                      onClick={() => window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank")}
+                      onClick={() => {
+                        if (isPreviewable(f.mimeType)) setPreviewItem(f as FileItem);
+                        else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank");
+                      }}
                       className="w-full text-left flex items-center gap-2 py-1 px-1 rounded text-sm hover:bg-accent/60 transition-colors"
                     >
                       <File className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -311,6 +343,7 @@ export default function DrivePage() {
                     // Skip if clicking the action menu or rename input
                     if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                     if (file.type === "directory") setCurrentPath(file.path);
+                    else if (isPreviewable(file.mimeType)) setPreviewItem(file as FileItem);
                     else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                   }}
                 >
