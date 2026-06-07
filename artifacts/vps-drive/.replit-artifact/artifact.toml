@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "VPS Drive"
+version = "1.0.0"
+id = "artifacts/vps-drive"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24271
+
+[services.development]
+run = "pnpm --filter @workspace/vps-drive run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/vps-drive", "run", "build" ]
+publicDir = "artifacts/vps-drive/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24271"
+BASE_PATH = "/"

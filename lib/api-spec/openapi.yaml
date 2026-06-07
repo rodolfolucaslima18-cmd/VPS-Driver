@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: files
+    description: File management operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,163 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /files:
+    get:
+      operationId: listFiles
+      tags: [files]
+      summary: List directory contents
+      description: Returns all files and folders inside the given path
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Directory path relative to storage root (empty = root)
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileItem"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+    delete:
+      operationId: deleteItem
+      tags: [files]
+      summary: Delete a file or folder
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Path to delete (relative to storage root)
+      responses:
+        "204":
+          description: Deleted successfully
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /files/upload:
+    post:
+      operationId: uploadFiles
+      tags: [files]
+      summary: Upload files to a directory
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/FileUploadInput"
+      responses:
+        "200":
+          description: Uploaded files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileItem"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+
+  /files/mkdir:
+    post:
+      operationId: createDirectory
+      tags: [files]
+      summary: Create a new directory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectoryInput"
+      responses:
+        "201":
+          description: Directory created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileItem"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+
+  /files/rename:
+    patch:
+      operationId: renameItem
+      tags: [files]
+      summary: Rename or move a file or folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameInput"
+      responses:
+        "200":
+          description: Renamed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileItem"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /files/stats:
+    get:
+      operationId: getStorageStats
+      tags: [files]
+      summary: Get storage statistics
+      description: Returns total file count, total size, and recent uploads
+      responses:
+        "200":
+          description: Storage stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageStats"
+        "401":
+          description: Unauthorized
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +193,82 @@ components:
       required:
         - status
 
+    FileItem:
+      type: object
+      required: [name, path, type, size, modifiedAt]
+      properties:
+        name:
+          type: string
+          description: File or folder name
+        path:
+          type: string
+          description: Path relative to storage root
+        type:
+          type: string
+          enum: [file, directory]
+        size:
+          type: integer
+          description: Size in bytes (0 for directories)
+        modifiedAt:
+          type: string
+          description: ISO 8601 last modified timestamp
+        mimeType:
+          type: ["string", "null"]
+          description: MIME type for files
+
+    FileUploadInput:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Target directory path relative to storage root
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+
+    DirectoryInput:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Full path of the new directory relative to storage root
+
+    RenameInput:
+      type: object
+      required: [oldPath, newPath]
+      properties:
+        oldPath:
+          type: string
+          description: Current path relative to storage root
+        newPath:
+          type: string
+          description: New path relative to storage root
+
+    StorageStats:
+      type: object
+      required: [totalFiles, totalSize, totalDirectories, recentFiles]
+      properties:
+        totalFiles:
+          type: integer
+          description: Total number of files
+        totalSize:
+          type: integer
+          description: Total size in bytes
+        totalDirectories:
+          type: integer
+          description: Total number of directories
+        recentFiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileItem"
+          description: Last 10 modified files
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
