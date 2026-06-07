@@ -153,11 +153,6 @@ export default function LandingPage() {
                   Baixar install.sh
                 </a>
               </Button>
-              <Button asChild variant="ghost" size="sm" className="text-muted-foreground gap-2">
-                <a href="/DEPLOY.md" target="_blank" rel="noopener noreferrer">
-                  Ver guia completo (DEPLOY.md)
-                </a>
-              </Button>
             </div>
           </div>
         </section>

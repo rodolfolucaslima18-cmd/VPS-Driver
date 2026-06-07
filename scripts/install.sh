@@ -132,11 +132,15 @@ fi
 # ── Localizar ou obter o código do app ────────────────────────
 step "Localizando código do VPS Drive..."
 
-# Detectar modo: (1) executado de dentro do projeto, (2) INSTALL_DIR já existe, (3) clonar
+# URL do repositório git injetada pelo servidor no momento do download.
+# Pode ser sobrescrita pela variável de ambiente VPS_DRIVE_REPO_URL.
+DEFAULT_REPO_URL="__REPO_URL__"
+GIT_REPO="${VPS_DRIVE_REPO_URL:-$DEFAULT_REPO_URL}"
+
+# Detectar modo local: (1) executado de dentro do projeto, (2) INSTALL_DIR já existe
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || echo "")"
 PROJECT_ROOT=""
 
-# Verificar se o script está dentro do projeto
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../package.json" ]]; then
   PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 elif [[ -f "$PWD/package.json" ]]; then
@@ -144,6 +148,7 @@ elif [[ -f "$PWD/package.json" ]]; then
 fi
 
 if [[ -n "$PROJECT_ROOT" ]]; then
+  # Modo local: copiar arquivos do projeto para INSTALL_DIR
   echo "  Projeto encontrado em: $PROJECT_ROOT"
   if [[ "$PROJECT_ROOT" != "$INSTALL_DIR" ]]; then
     echo "  Copiando arquivos para $INSTALL_DIR..."
@@ -153,16 +158,28 @@ if [[ -n "$PROJECT_ROOT" ]]; then
   fi
   ok "Código localizado em $INSTALL_DIR"
 elif [[ -f "$INSTALL_DIR/package.json" ]]; then
-  echo "  Instalação existente detectada em $INSTALL_DIR"
+  # Instalação prévia detectada — atualizar via git pull se possível
+  echo "  Instalação detectada em $INSTALL_DIR"
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    cd "$INSTALL_DIR" && git pull --quiet
+    echo "  Código atualizado via git pull"
+  fi
   ok "Usando código existente em $INSTALL_DIR"
-else
-  # Último recurso: pedir URL do repositório git
-  echo ""
-  echo -e "${YELLOW}Não foi encontrado o código do projeto localmente.${NC}"
-  read -rp "URL do repositório git para clonar: " GIT_REPO
-  [[ -z "$GIT_REPO" ]] && error "URL do repositório é necessária quando o projeto não está presente localmente."
-  echo "  Clonando $GIT_REPO..."
+elif [[ -n "$GIT_REPO" ]]; then
+  # Modo remoto: clonar repositório configurado automaticamente
+  echo "  Clonando repositório: $GIT_REPO"
   git clone "$GIT_REPO" "$INSTALL_DIR"
+  ok "Repositório clonado em $INSTALL_DIR"
+else
+  # Nenhuma fonte disponível — pedir ao usuário como último recurso
+  echo ""
+  echo -e "${YELLOW}Código do projeto não encontrado localmente.${NC}"
+  echo -e "Configure a variável VPS_DRIVE_REPO_URL com a URL do seu repositório"
+  echo -e "e baixe novamente o instalador, ou execute de dentro do projeto."
+  echo ""
+  read -rp "URL do repositório git (ou Enter para cancelar): " MANUAL_REPO
+  [[ -z "$MANUAL_REPO" ]] && error "URL do repositório necessária. Cancele e tente novamente."
+  git clone "$MANUAL_REPO" "$INSTALL_DIR"
   ok "Repositório clonado em $INSTALL_DIR"
 fi
 
