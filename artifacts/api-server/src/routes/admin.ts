@@ -45,6 +45,31 @@ async function requireMaster(
   }
 }
 
+// GET /admin/me — verifica se o usuário atual é o Master
+router.get("/admin/me", async (req, res): Promise<void> => {
+  const auth = getAuth(req);
+  const userId = auth?.sessionClaims?.userId || auth?.userId;
+
+  if (!userId) {
+    res.status(401).json({ error: "Não autenticado." });
+    return;
+  }
+
+  try {
+    const clerk = getClerk();
+    const { data: users } = await clerk.users.getUserList({
+      limit: 1,
+      orderBy: "+created_at",
+    });
+
+    const isMaster = users.length > 0 && users[0].id === userId;
+    res.json({ isMaster });
+  } catch (err) {
+    console.error("Erro ao verificar usuário Master:", err);
+    res.status(500).json({ error: "Erro interno ao verificar permissões." });
+  }
+});
+
 // GET /admin/users — listar todos os usuários
 router.get("/admin/users", requireMaster, async (_req, res): Promise<void> => {
   try {

@@ -87,6 +87,15 @@ export default function DrivePage() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
+  const [isMaster, setIsMaster] = useState<boolean>(false);
+
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/admin/me`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { isMaster: false })
+      .then((data) => setIsMaster(data.isMaster === true))
+      .catch(() => setIsMaster(false));
+  }, []);
+
   const { data: files, isLoading } = useListFiles({ path: currentPath });
   const { data: stats } = useGetStorageStats();
 
@@ -260,10 +269,12 @@ export default function DrivePage() {
         </div>
 
         <div className="p-3 border-t border-border space-y-1">
-          <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setLocation("/admin")}>
-            <Users className="w-4 h-4 mr-2" />
-            Administração
-          </Button>
+          {isMaster && (
+            <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setLocation("/admin")}>
+              <Users className="w-4 h-4 mr-2" />
+              Administração
+            </Button>
+          )}
           <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => signOut({ redirectUrl: "/" })}>
             <LogOut className="w-4 h-4 mr-2" />
             Sair
