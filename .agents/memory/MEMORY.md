@@ -1,0 +1,1 @@
+- [Auth migration](auth-migration.md) — VPS Drive usa express-session + bcryptjs (sem Clerk); sessão em PostgreSQL via connect-pg-simple.

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useUser } from "@clerk/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
 import {
   HardDrive,
   Users,
@@ -11,8 +11,9 @@ import {
   ShieldCheck,
   ArrowLeft,
   Loader2,
-  Mail,
   Crown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -21,12 +22,11 @@ const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type AdminUser = {
   id: string;
-  firstName: string | null;
-  lastName: string | null;
-  email: string | null;
-  createdAt: number;
-  banned: boolean;
-  lastSignInAt: number | null;
+  name: string;
+  email: string;
+  role: "master" | "user";
+  isActive: boolean;
+  createdAt: string;
 };
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -42,8 +42,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function formatDate(ts: number | null): string {
-  if (!ts) return "Nunca";
+function formatDate(ts: string | null): string {
+  if (!ts) return "—";
   return new Date(ts).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "short",
@@ -51,23 +51,22 @@ function formatDate(ts: number | null): string {
   });
 }
 
-function userName(u: AdminUser): string {
-  const parts = [u.firstName, u.lastName].filter(Boolean);
-  return parts.length > 0 ? parts.join(" ") : u.email ?? "Sem nome";
+function userInitials(u: AdminUser): string {
+  const parts = u.name.trim().split(" ");
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return (first + last).toUpperCase() || u.email[0].toUpperCase();
 }
 
-function userInitials(u: AdminUser): string {
-  const first = u.firstName?.[0] ?? "";
-  const last = u.lastName?.[0] ?? "";
-  return (first + last).toUpperCase() || (u.email?.[0]?.toUpperCase() ?? "?");
-}
+type CreateUserForm = { name: string; email: string; password: string };
 
 export default function AdminPage() {
   const [, setLocation] = useLocation();
-  const { user } = useUser();
+  const { user: currentUser } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [form, setForm] = useState<CreateUserForm>({ name: "", email: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
@@ -76,18 +75,19 @@ export default function AdminPage() {
     retry: false,
   });
 
-  const inviteMutation = useMutation({
-    mutationFn: (email: string) =>
-      apiFetch("/api/admin/users/invite", {
+  const createMutation = useMutation({
+    mutationFn: (payload: CreateUserForm) =>
+      apiFetch("/api/admin/users", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify(payload),
       }),
     onSuccess: (res: { message?: string }) => {
-      toast({ title: "Convite enviado", description: res.message });
-      setInviteEmail("");
+      toast({ title: "Usuário criado", description: res.message });
+      setForm({ name: "", email: "", password: "" });
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Erro ao enviar convite", description: err.message, variant: "destructive" });
+      toast({ title: "Erro ao criar usuário", description: err.message, variant: "destructive" });
     },
   });
 
@@ -117,17 +117,16 @@ export default function AdminPage() {
     },
   });
 
-  const handleInvite = useCallback(
+  const handleCreate = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      const email = inviteEmail.trim();
-      if (!email) return;
-      inviteMutation.mutate(email);
+      const { name, email, password } = form;
+      if (!name.trim() || !email.trim() || !password) return;
+      createMutation.mutate({ name: name.trim(), email: email.trim(), password });
     },
-    [inviteEmail, inviteMutation],
+    [form, createMutation],
   );
 
-  const isMasterUser = data?.users[0]?.id === user?.id;
   const isAccessDenied =
     !isLoading &&
     (error instanceof Error ? error.message.includes("Apenas o usuário Master") : false);
@@ -212,39 +211,65 @@ export default function AdminPage() {
 
           {data && !isAccessDenied && (
             <>
-              {/* Invite form */}
+              {/* Create user form */}
               <div className="rounded-xl border border-border bg-card p-5">
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
                   <UserPlus className="w-4 h-4 text-primary" />
-                  Convidar novo usuário
+                  Criar novo usuário
                 </h2>
-                <form onSubmit={handleInvite} className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <form onSubmit={handleCreate} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="Nome completo"
+                      required
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
                     <input
                       type="email"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                       placeholder="email@exemplo.com"
-                      className="w-full pl-9 pr-3 h-9 rounded-md border border-input bg-background text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      required
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
                   </div>
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="h-9 px-4"
-                    disabled={inviteMutation.isPending || !inviteEmail.trim()}
-                  >
-                    {inviteMutation.isPending ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      "Enviar convite"
-                    )}
-                  </Button>
+                  <div className="flex gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={form.password}
+                        onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                        placeholder="Senha (mín. 8 caracteres)"
+                        required
+                        minLength={8}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 pr-9 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="h-9 px-4 shrink-0"
+                      disabled={createMutation.isPending || !form.name.trim() || !form.email.trim() || !form.password}
+                    >
+                      {createMutation.isPending ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        "Criar"
+                      )}
+                    </Button>
+                  </div>
                 </form>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Um e-mail de convite será enviado pelo Clerk para o endereço informado.
-                </p>
               </div>
 
               {/* Users list */}
@@ -262,16 +287,15 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
-                    {data.users.map((u, idx) => {
-                      const isCurrentUser = u.id === user?.id;
-                      const isMaster = idx === 0;
-                      const isPending =
-                        suspendMutation.isPending || deleteMutation.isPending;
+                    {data.users.map((u) => {
+                      const isCurrentUser = u.id === currentUser?.id;
+                      const isMaster = u.role === "master";
+                      const isPending = suspendMutation.isPending || deleteMutation.isPending;
 
                       return (
                         <div
                           key={u.id}
-                          className={`flex items-center gap-4 px-5 py-3.5 ${u.banned ? "opacity-60" : ""}`}
+                          className={`flex items-center gap-4 px-5 py-3.5 ${!u.isActive ? "opacity-60" : ""}`}
                         >
                           {/* Avatar */}
                           <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
@@ -280,37 +304,32 @@ export default function AdminPage() {
 
                           {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium truncate">
-                                {userName(u)}
-                              </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium truncate">{u.name}</span>
                               {isMaster && (
                                 <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 shrink-0">
                                   <Crown className="w-3 h-3" />
                                   Master
                                 </span>
                               )}
-                              {isCurrentUser && !isMaster && (
+                              {isCurrentUser && (
                                 <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 shrink-0">
                                   Você
                                 </span>
                               )}
-                              {u.banned && (
+                              {!u.isActive && (
                                 <span className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-full px-2 py-0.5 shrink-0">
                                   Suspenso
                                 </span>
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground truncate">
-                              {u.email ?? "Sem e-mail"} · Criado em {formatDate(u.createdAt)}
-                            </p>
-                            <p className="text-xs text-muted-foreground/70">
-                              Último acesso: {formatDate(u.lastSignInAt)}
+                              {u.email} · Criado em {formatDate(u.createdAt)}
                             </p>
                           </div>
 
                           {/* Actions */}
-                          {!isCurrentUser && (
+                          {!isCurrentUser && !isMaster && (
                             <div className="flex items-center gap-2 shrink-0">
                               {confirmDeleteId === u.id ? (
                                 <>
@@ -345,9 +364,9 @@ export default function AdminPage() {
                                     className="h-7 px-2 text-xs gap-1"
                                     disabled={isPending}
                                     onClick={() => suspendMutation.mutate(u.id)}
-                                    title={u.banned ? "Reativar usuário" : "Suspender usuário"}
+                                    title={!u.isActive ? "Reativar usuário" : "Suspender usuário"}
                                   >
-                                    {u.banned ? (
+                                    {!u.isActive ? (
                                       <>
                                         <ShieldCheck className="w-3 h-3" />
                                         Reativar
@@ -371,12 +390,6 @@ export default function AdminPage() {
                                   </Button>
                                 </>
                               )}
-                            </div>
-                          )}
-
-                          {isCurrentUser && isMasterUser && (
-                            <div className="shrink-0 text-xs text-muted-foreground italic">
-                              sua conta
                             </div>
                           )}
                         </div>

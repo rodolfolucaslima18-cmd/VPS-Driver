@@ -84,16 +84,6 @@ APP_PORT="${APP_PORT:-5000}"
 read -rp "Pasta de instalação do app [/opt/vps-drive]: " INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-/opt/vps-drive}"
 
-echo ""
-echo -e "${BOLD}Chaves do Clerk (necessárias para autenticação):${NC}"
-echo -e "${YELLOW}Obtenha em: https://dashboard.clerk.com → seu app → API Keys${NC}"
-read -rp "CLERK_PUBLISHABLE_KEY (pk_live_...): " CLERK_PUB_KEY
-read -rsp "CLERK_SECRET_KEY (sk_live_...): " CLERK_SECRET_KEY
-echo ""
-
-[[ -z "$CLERK_PUB_KEY" ]] && error "CLERK_PUBLISHABLE_KEY é obrigatória."
-[[ -z "$CLERK_SECRET_KEY" ]] && error "CLERK_SECRET_KEY é obrigatória."
-
 # ── Resumo ───────────────────────────────────────────────────
 echo -e "\n${BOLD}Resumo:${NC}"
 echo "  Host:              $VPS_HOST"
@@ -212,12 +202,11 @@ cd "$INSTALL_DIR"
 
 # ── Arquivo .env ─────────────────────────────────────────────
 step "Gerando arquivo .env..."
+SESSION_SECRET=$(openssl rand -hex 32)
 cat > "$INSTALL_DIR/.env" <<EOF
 STORAGE_PATH=$STORAGE_PATH
 PORT=$APP_PORT
-CLERK_PUBLISHABLE_KEY=$CLERK_PUB_KEY
-CLERK_SECRET_KEY=$CLERK_SECRET_KEY
-VITE_CLERK_PUBLISHABLE_KEY=$CLERK_PUB_KEY
+SESSION_SECRET=$SESSION_SECRET
 BASE_PATH=/
 NODE_ENV=production
 EOF

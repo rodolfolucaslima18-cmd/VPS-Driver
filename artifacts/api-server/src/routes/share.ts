@@ -2,7 +2,6 @@ import { Router, type IRouter } from "express";
 import path from "path";
 import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
-import { getAuth } from "@clerk/express";
 import { resolveStoragePath, getMimeType } from "../lib/storage";
 import {
   createShareToken,
@@ -22,8 +21,7 @@ const TTL_MAP: Record<string, number> = {
 
 // POST /share — create a share token (requires auth)
 router.post("/share", requireAuth, async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  const userId = auth?.sessionClaims?.userId || auth?.userId;
+  const userId = req.session.userId;
   if (!userId) {
     res.status(401).json({ error: "Não autenticado." });
     return;
@@ -63,8 +61,7 @@ router.post("/share", requireAuth, async (req, res): Promise<void> => {
 
 // GET /share/list — list active share tokens for current user (requires auth)
 router.get("/share/list", requireAuth, async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  const userId = auth?.sessionClaims?.userId || auth?.userId;
+  const userId = req.session.userId;
   if (!userId) {
     res.status(401).json({ error: "Não autenticado." });
     return;
@@ -126,8 +123,7 @@ router.get("/share/:token", async (req, res): Promise<void> => {
 
 // DELETE /share/:token — revoke a share token (requires auth)
 router.delete("/share/:token", requireAuth, async (req, res): Promise<void> => {
-  const auth = getAuth(req);
-  const userId = auth?.sessionClaims?.userId || auth?.userId;
+  const userId = req.session.userId;
   if (!userId) {
     res.status(401).json({ error: "Não autenticado." });
     return;

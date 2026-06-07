@@ -1,27 +1,20 @@
 import { Router, type IRouter } from "express";
-import fs from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-import { createClerkClient } from "@clerk/backend";
-import { STORAGE_ROOT } from "../lib/storage";
+import { db } from "@workspace/db";
+import { usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { hashPassword } from "../lib/auth";
+import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
 
-const SETUP_MARKER = path.join(STORAGE_ROOT, ".setup_done");
-
-function getClerk() {
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("CLERK_SECRET_KEY não configurada");
-  }
-  return createClerkClient({ secretKey });
-}
-
-async function hasExistingUsers(): Promise<boolean> {
+async function hasMasterUser(): Promise<boolean> {
   try {
-    const clerk = getClerk();
-    const result = await clerk.users.getUserList({ limit: 1 });
-    return result.totalCount > 0;
+    const [user] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.role, "master"))
+      .limit(1);
+    return !!user;
   } catch {
     return false;
   }
@@ -29,25 +22,15 @@ async function hasExistingUsers(): Promise<boolean> {
 
 // GET /setup/status — público, verifica se setup já foi concluído
 router.get("/setup/status", async (_req, res): Promise<void> => {
-  const markerExists = existsSync(SETUP_MARKER);
-  if (markerExists) {
-    res.json({ done: true });
-    return;
-  }
-  const usersExist = await hasExistingUsers();
-  res.json({ done: usersExist });
+  const done = await hasMasterUser();
+  res.json({ done });
 });
 
 // POST /setup/create-master — público, executável apenas uma vez
 router.post("/setup/create-master", async (req, res): Promise<void> => {
-  if (existsSync(SETUP_MARKER)) {
+  const masterExists = await hasMasterUser();
+  if (masterExists) {
     res.status(403).json({ error: "Setup já foi concluído. Acesso negado." });
-    return;
-  }
-
-  const usersExist = await hasExistingUsers();
-  if (usersExist) {
-    res.status(403).json({ error: "Já existe um usuário cadastrado. Setup bloqueado." });
     return;
   }
 
@@ -68,40 +51,31 @@ router.post("/setup/create-master", async (req, res): Promise<void> => {
   }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
+  if (!emailRegex.test(email.trim())) {
     res.status(400).json({ error: "E-mail inválido." });
     return;
   }
 
   try {
-    const clerk = getClerk();
+    const passwordHash = await hashPassword(password);
 
-    const [firstName, ...rest] = name.trim().split(" ");
-    const lastName = rest.join(" ") || undefined;
-
-    await clerk.users.createUser({
-      emailAddress: [email],
-      password,
-      firstName,
-      lastName,
+    await db.insert(usersTable).values({
+      id: randomUUID(),
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      passwordHash,
+      role: "master",
+      isActive: true,
     });
-
-    await fs.mkdir(STORAGE_ROOT, { recursive: true });
-    await fs.writeFile(SETUP_MARKER, new Date().toISOString(), "utf-8");
 
     res.status(201).json({ ok: true, message: "Usuário Master criado com sucesso." });
   } catch (err: unknown) {
-    const clerkErr = err as { errors?: { message: string }[]; status?: number };
-    if (clerkErr?.errors?.length) {
-      const msg = clerkErr.errors[0].message;
-      if (msg.toLowerCase().includes("email") || msg.toLowerCase().includes("e-mail")) {
-        res.status(400).json({ error: "Este e-mail já está em uso." });
-      } else {
-        res.status(400).json({ error: msg });
-      }
+    const pgErr = err as { code?: string };
+    if (pgErr?.code === "23505") {
+      res.status(400).json({ error: "Este e-mail já está em uso." });
     } else {
       console.error("Erro ao criar usuário Master:", err);
-      res.status(500).json({ error: "Erro interno ao criar o usuário. Verifique as chaves do Clerk." });
+      res.status(500).json({ error: "Erro interno ao criar o usuário." });
     }
   }
 });

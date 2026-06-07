@@ -4,7 +4,7 @@ import {
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
-import { useClerk } from "@clerk/react";
+import { useAuth, logout } from "@/lib/auth";
 import { useLocation } from "wouter";
 import {
   useListFiles, useGetStorageStats,
@@ -82,19 +82,20 @@ export default function DrivePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const { signOut } = useClerk();
+  const { user } = useAuth();
+  const isMaster = user?.role === "master";
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
-  const [isMaster, setIsMaster] = useState<boolean>(false);
-
-  useEffect(() => {
-    fetch(`${BASE_URL}/api/admin/me`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : { isMaster: false })
-      .then((data) => setIsMaster(data.isMaster === true))
-      .catch(() => setIsMaster(false));
-  }, []);
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      setLocation("/");
+      window.location.href = "/";
+    }
+  }
 
   const { data: files, isLoading } = useListFiles({ path: currentPath });
   const { data: stats } = useGetStorageStats();
@@ -275,7 +276,7 @@ export default function DrivePage() {
               Administração
             </Button>
           )}
-          <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => signOut({ redirectUrl: "/" })}>
+          <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={handleLogout}>
             <LogOut className="w-4 h-4 mr-2" />
             Sair
           </Button>

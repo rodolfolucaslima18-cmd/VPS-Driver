@@ -5,10 +5,12 @@ import setupRouter from "./setup";
 import downloadRouter from "./download";
 import adminRouter from "./admin";
 import shareRouter from "./share";
+import authRouter from "./auth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(authRouter);
 router.use(filesRouter);
 router.use(setupRouter);
 router.use(downloadRouter);

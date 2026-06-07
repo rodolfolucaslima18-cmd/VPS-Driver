@@ -42,11 +42,8 @@ export default function LandingPage() {
           <a href="#instalacao" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:block">
             Instalação
           </a>
-          <Link href="/sign-in" className="text-sm font-medium hover:text-primary transition-colors">
-            Entrar
-          </Link>
           <Button asChild size="sm">
-            <Link href="/sign-up">Começar agora</Link>
+            <Link href="/sign-in">Entrar</Link>
           </Button>
         </div>
       </header>
@@ -76,7 +73,7 @@ export default function LandingPage() {
               <a href="#instalacao">Instalar agora</a>
             </Button>
             <Button asChild size="lg" variant="outline" className="w-full sm:w-auto h-12 px-8 text-base bg-background/50">
-              <Link href="/sign-in">Acessar arquivos</Link>
+              <Link href="/sign-in">Entrar</Link>
             </Button>
           </div>
         </section>
