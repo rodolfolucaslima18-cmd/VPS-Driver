@@ -93,14 +93,17 @@ export default function DrivePage() {
 
   const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const fd = new FormData();
-    for (const f of Array.from(fileList)) fd.append("files", f);
-    if (currentPath) fd.append("path", currentPath);
-    setUploadProgress(`Uploading ${fileList.length} file${fileList.length > 1 ? "s" : ""}…`);
+    const files = Array.from(fileList);
+    setUploadProgress(`Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`);
     try {
-      await uploadMutation.mutateAsync({ data: fd } as never);
+      await uploadMutation.mutateAsync({
+        data: {
+          files,
+          ...(currentPath ? { path: currentPath } : {}),
+        },
+      });
       invalidate();
-      toast({ title: "Upload complete", description: `${fileList.length} file(s) uploaded.` });
+      toast({ title: "Upload complete", description: `${files.length} file(s) uploaded.` });
     } catch {
       toast({ title: "Upload failed", description: "Could not upload files.", variant: "destructive" });
     } finally {
