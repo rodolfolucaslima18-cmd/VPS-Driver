@@ -90,6 +90,16 @@ APP_PORT="${APP_PORT:-5000}"
 read -rp "Pasta de instalação do app [/opt/vps-drive]: " INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-/opt/vps-drive}"
 
+echo ""
+echo "Defina as credenciais do usuário administrador (criadas automaticamente ao final):"
+read -rp "Nome do administrador: " ADMIN_NAME
+[[ -z "$ADMIN_NAME" ]] && error "O nome do administrador é obrigatório."
+read -rp "E-mail do administrador: " ADMIN_EMAIL
+[[ -z "$ADMIN_EMAIL" ]] && error "O e-mail do administrador é obrigatório."
+read -srp "Senha do administrador (mín. 8 caracteres): " ADMIN_PASSWORD
+echo ""
+[[ ${#ADMIN_PASSWORD} -lt 8 ]] && error "A senha deve ter pelo menos 8 caracteres."
+
 # ── Resumo ───────────────────────────────────────────────────
 echo -e "\n${BOLD}Resumo:${NC}"
 echo "  Host:              $VPS_HOST"
@@ -97,6 +107,7 @@ echo "  Banco de dados:    ${DATABASE_URL%%@*}@..."
 echo "  Armazenamento:     $STORAGE_PATH"
 echo "  Porta interna:     $APP_PORT"
 echo "  Diretório do app:  $INSTALL_DIR"
+echo "  Admin:             $ADMIN_NAME <$ADMIN_EMAIL>"
 if [[ "$USE_HTTPS" == "true" ]]; then
   echo "  HTTPS:             Sim (Certbot / Let's Encrypt)"
   echo "  E-mail Certbot:    $CERTBOT_EMAIL"
@@ -250,7 +261,7 @@ pnpm install --frozen-lockfile || {
 ok "Dependências instaladas"
 
 step "Aplicando schema do banco de dados..."
-DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push --accept-data-loss 2>&1 | tail -5
+DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push --force 2>&1 | tail -5
 ok "Schema do banco de dados aplicado"
 
 # ── Build frontend ────────────────────────────────────────────
@@ -349,6 +360,129 @@ if [[ -n "$STARTUP_CMD" ]]; then
 fi
 ok "Servidor iniciado com PM2"
 
+# ── Verificação pós-instalação ────────────────────────────────
+step "Verificando saúde do servidor (healthz interno)..."
+echo "  Aguardando o servidor iniciar..."
+HEALTH_OK=false
+for i in $(seq 1 20); do
+  sleep 3
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$APP_PORT/api/healthz" 2>/dev/null || echo "000")
+  if [[ "$HTTP_STATUS" == "200" ]]; then
+    HEALTH_OK=true
+    ok "Servidor interno respondendo: http://localhost:$APP_PORT/api/healthz → HTTP $HTTP_STATUS"
+    break
+  fi
+  echo "  Tentativa $i/20: HTTP $HTTP_STATUS — aguardando..."
+done
+if [[ "$HEALTH_OK" != "true" ]]; then
+  echo ""
+  pm2 logs vps-drive-api --lines 20 --nostream 2>/dev/null || true
+  error "Servidor não iniciou em tempo. Veja os logs acima e corrija antes de continuar."
+fi
+
+step "Verificando conectividade com o banco de dados..."
+DB_STATUS_CODE=$(curl -s -o /tmp/db_health.json -w "%{http_code}" "http://localhost:$APP_PORT/api/healthz/db" 2>/dev/null || echo "000")
+DB_STATUS_BODY=$(cat /tmp/db_health.json 2>/dev/null || echo "")
+if [[ "$DB_STATUS_CODE" == "200" ]]; then
+  ok "Banco de dados acessível: $DB_STATUS_BODY"
+else
+  echo "  Resposta do servidor: $DB_STATUS_BODY"
+  error "Banco de dados inacessível (HTTP $DB_STATUS_CODE). Verifique DATABASE_URL e as permissões do banco."
+fi
+
+step "Verificando resposta do Nginx (URL pública)..."
+if [[ "$USE_HTTPS" == "true" ]]; then
+  PUBLIC_PROTO="https"
+else
+  PUBLIC_PROTO="http"
+fi
+NGINX_API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PUBLIC_PROTO://$VPS_HOST/api/healthz" 2>/dev/null || echo "000")
+if [[ "$NGINX_API_STATUS" == "200" ]]; then
+  ok "Nginx roteia /api/ corretamente: $PUBLIC_PROTO://$VPS_HOST/api/healthz → HTTP $NGINX_API_STATUS"
+else
+  error "Nginx não está roteando /api/ corretamente (HTTP $NGINX_API_STATUS). Verifique: nginx -t && systemctl status nginx"
+fi
+
+NGINX_FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PUBLIC_PROTO://$VPS_HOST/" 2>/dev/null || echo "000")
+if [[ "$NGINX_FRONTEND_STATUS" == "200" ]]; then
+  ok "Nginx serve o frontend: $PUBLIC_PROTO://$VPS_HOST/ → HTTP $NGINX_FRONTEND_STATUS"
+else
+  error "Nginx não está servindo o frontend (HTTP $NGINX_FRONTEND_STATUS). Verifique /etc/nginx/sites-available/vps-drive"
+fi
+
+echo ""
+pm2 status vps-drive-api
+
+# ── Smoke test: criar admin, login, upload e download ─────────
+step "Smoke test: criando usuário administrador e verificando upload/download..."
+
+# Criar usuário master
+SETUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "http://localhost:$APP_PORT/api/setup/create-master" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"$ADMIN_NAME\",\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null)
+SETUP_CODE=$(echo "$SETUP_RESP" | tail -1)
+SETUP_BODY=$(echo "$SETUP_RESP" | head -1)
+if [[ "$SETUP_CODE" == "201" ]]; then
+  ok "Usuário administrador criado: $ADMIN_EMAIL"
+elif [[ "$SETUP_CODE" == "403" ]]; then
+  ok "Usuário administrador já existia (setup já concluído)"
+else
+  error "Falha ao criar usuário administrador (HTTP $SETUP_CODE): $SETUP_BODY"
+fi
+
+# Login e captura do cookie de sessão
+LOGIN_COOKIE_HEADER=$(curl -si -X POST "http://localhost:$APP_PORT/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null \
+  | grep -i "set-cookie:" | head -1 | sed 's/.*connect\.sid=\([^;]*\).*/connect.sid=\1/')
+SESSION_DECODED=$(python3 -c "import urllib.parse; print(urllib.parse.unquote('$LOGIN_COOKIE_HEADER'))" 2>/dev/null || echo "$LOGIN_COOKIE_HEADER")
+if [[ -z "$SESSION_DECODED" ]]; then
+  error "Login falhou — cookie de sessão não foi recebido. Verifique SESSION_SECRET no .env"
+fi
+ok "Login bem-sucedido, sessão ativa"
+
+# Verificar /auth/me com a sessão
+ME_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Cookie: $SESSION_DECODED" \
+  "http://localhost:$APP_PORT/api/auth/me" 2>/dev/null || echo "000")
+if [[ "$ME_CODE" == "200" ]]; then
+  ok "Sessão autenticada confirmada via /auth/me"
+else
+  error "Sessão inválida (/auth/me retornou HTTP $ME_CODE). Verifique connect-pg-simple e a tabela sessions."
+fi
+
+# Upload de arquivo de teste
+SMOKE_FILE=$(mktemp)
+echo "vps-drive-smoke-test-$(date +%s)" > "$SMOKE_FILE"
+SMOKE_CONTENT=$(cat "$SMOKE_FILE")
+UPLOAD_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Cookie: $SESSION_DECODED" \
+  -F "files=@$SMOKE_FILE;filename=.vps-smoke-test.tmp" \
+  -F "path=" \
+  "http://localhost:$APP_PORT/api/files/upload" 2>/dev/null || echo "000")
+rm -f "$SMOKE_FILE"
+if [[ "$UPLOAD_CODE" == "200" ]]; then
+  ok "Upload de arquivo verificado (HTTP $UPLOAD_CODE)"
+else
+  error "Falha no upload de arquivo (HTTP $UPLOAD_CODE)"
+fi
+
+# Download e verificação do conteúdo
+DOWNLOADED=$(curl -s -H "Cookie: $SESSION_DECODED" \
+  "http://localhost:$APP_PORT/api/files/download?path=.vps-smoke-test.tmp" 2>/dev/null)
+if [[ "$DOWNLOADED" == "$SMOKE_CONTENT" ]]; then
+  ok "Download verificado — conteúdo idêntico ao upload"
+else
+  error "Falha na verificação do download (conteúdo não confere)"
+fi
+
+# Limpeza do arquivo de teste
+curl -s -o /dev/null -X DELETE -H "Cookie: $SESSION_DECODED" \
+  "http://localhost:$APP_PORT/api/files?.vps-smoke-test.tmp" 2>/dev/null || true
+curl -s -o /dev/null -X DELETE -H "Cookie: $SESSION_DECODED" \
+  "http://localhost:$APP_PORT/api/files?path=.vps-smoke-test.tmp" 2>/dev/null || true
+
+ok "Smoke test concluído — login, upload e download funcionando corretamente"
+
 # ── Mensagem final ───────────────────────────────────────────
 if [[ "$USE_HTTPS" == "true" ]]; then
   PROTO="https"
@@ -363,9 +497,8 @@ ${BOLD}${GREEN}╔════════════════════�
 
 ${BOLD}Próximos passos:${NC}
 
-  1. Abra no navegador: ${CYAN}${PROTO}://$VPS_HOST/setup${NC}
-  2. Crie o usuário administrador (nome, e-mail e senha)
-  3. Após criação, faça login em: ${CYAN}${PROTO}://$VPS_HOST${NC}
+  1. Acesse o VPS Drive: ${CYAN}${PROTO}://$VPS_HOST${NC}
+  2. Faça login com o e-mail: ${CYAN}$ADMIN_EMAIL${NC}
 
 ${BOLD}Comandos úteis:${NC}
   pm2 status                  — status do servidor
