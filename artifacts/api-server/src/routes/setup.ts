@@ -17,16 +17,37 @@ function getClerk() {
   return createClerkClient({ secretKey });
 }
 
+async function hasExistingUsers(): Promise<boolean> {
+  try {
+    const clerk = getClerk();
+    const result = await clerk.users.getUserList({ limit: 1 });
+    return result.totalCount > 0;
+  } catch {
+    return false;
+  }
+}
+
 // GET /setup/status — público, verifica se setup já foi concluído
 router.get("/setup/status", async (_req, res): Promise<void> => {
-  const done = existsSync(SETUP_MARKER);
-  res.json({ done });
+  const markerExists = existsSync(SETUP_MARKER);
+  if (markerExists) {
+    res.json({ done: true });
+    return;
+  }
+  const usersExist = await hasExistingUsers();
+  res.json({ done: usersExist });
 });
 
 // POST /setup/create-master — público, executável apenas uma vez
 router.post("/setup/create-master", async (req, res): Promise<void> => {
   if (existsSync(SETUP_MARKER)) {
     res.status(403).json({ error: "Setup já foi concluído. Acesso negado." });
+    return;
+  }
+
+  const usersExist = await hasExistingUsers();
+  if (usersExist) {
+    res.status(403).json({ error: "Já existe um usuário cadastrado. Setup bloqueado." });
     return;
   }
 
@@ -65,7 +86,6 @@ router.post("/setup/create-master", async (req, res): Promise<void> => {
       lastName,
     });
 
-    // Criar marcador de setup concluído
     await fs.mkdir(STORAGE_ROOT, { recursive: true });
     await fs.writeFile(SETUP_MARKER, new Date().toISOString(), "utf-8");
 

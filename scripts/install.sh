@@ -2,6 +2,10 @@
 # ============================================================
 #  VPS Drive — Instalador Interativo
 #  Compatível com Ubuntu 20.04+ / Debian 11+
+#
+#  Uso:
+#    sudo bash scripts/install.sh             (de dentro do projeto)
+#    sudo bash <(curl -sL https://HOST/api/download/install.sh)
 # ============================================================
 set -euo pipefail
 
@@ -24,14 +28,19 @@ ${BOLD}${CYAN}╔═════════════════════
 ║         VPS Drive — Instalador       ║
 ╚══════════════════════════════════════╝${NC}
 "
-echo -e "Este script vai instalar e configurar o VPS Drive na sua VPS."
+echo -e "Este script instala e configura o VPS Drive na sua VPS."
 echo -e "Requisitos: Ubuntu 20.04+ ou Debian 11+\n"
+
+# ── Verificar root ───────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+  error "Execute este instalador como root: sudo bash scripts/install.sh"
+fi
 
 # ── Verificar sistema operacional ────────────────────────────
 step "Verificando sistema operacional..."
 if [[ -f /etc/os-release ]]; then
   . /etc/os-release
-  if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "$ID_LIKE" != *"debian"* ]]; then
+  if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "${ID_LIKE:-}" != *"debian"* ]]; then
     error "Sistema não suportado: $PRETTY_NAME. Use Ubuntu 20.04+ ou Debian 11+."
   fi
   ok "Sistema compatível: $PRETTY_NAME"
@@ -39,14 +48,9 @@ else
   error "Não foi possível identificar o sistema operacional."
 fi
 
-# ── Verificar root ───────────────────────────────────────────
-if [[ $EUID -ne 0 ]]; then
-  error "Execute este instalador como root: sudo bash install.sh"
-fi
-
 # ── Perguntas de configuração ────────────────────────────────
 echo -e "\n${BOLD}Configuração da instalação${NC}"
-echo "Responda as perguntas abaixo (pressione Enter para usar o valor padrão):"
+echo "Responda as perguntas abaixo (Enter = valor padrão entre colchetes):"
 echo ""
 
 read -rp "IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): " VPS_HOST
@@ -58,7 +62,6 @@ STORAGE_PATH="${STORAGE_PATH:-/data/vps-drive}"
 read -rp "Porta do servidor interno [5000]: " APP_PORT
 APP_PORT="${APP_PORT:-5000}"
 
-read -rp "URL do repositório git (deixe em branco para usar diretório atual): " GIT_REPO
 read -rp "Pasta de instalação do app [/opt/vps-drive]: " INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-/opt/vps-drive}"
 
@@ -73,7 +76,7 @@ echo ""
 [[ -z "$CLERK_SECRET_KEY" ]] && error "CLERK_SECRET_KEY é obrigatória."
 
 # ── Resumo ───────────────────────────────────────────────────
-echo -e "\n${BOLD}Resumo da instalação:${NC}"
+echo -e "\n${BOLD}Resumo:${NC}"
 echo "  Host:              $VPS_HOST"
 echo "  Armazenamento:     $STORAGE_PATH"
 echo "  Porta interna:     $APP_PORT"
@@ -82,19 +85,15 @@ echo ""
 read -rp "Confirmar instalação? [s/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "s" ]] && { echo "Instalação cancelada."; exit 0; }
 
-# ── Atualizar apt ─────────────────────────────────────────────
-step "Atualizando lista de pacotes..."
+# ── Instalar pacotes base ─────────────────────────────────────
+step "Atualizando lista de pacotes e instalando ferramentas básicas..."
 apt-get update -qq
-ok "Lista de pacotes atualizada"
-
-# ── Instalar curl e git ───────────────────────────────────────
-step "Instalando ferramentas básicas (curl, git)..."
-apt-get install -y -qq curl git
-ok "curl e git instalados"
+apt-get install -y -qq curl git rsync
+ok "Ferramentas instaladas"
 
 # ── Node.js 22 LTS ───────────────────────────────────────────
 step "Verificando Node.js..."
-if command -v node &>/dev/null && node --version | grep -q "^v2[2-9]"; then
+if command -v node &>/dev/null && node --version 2>/dev/null | grep -qE "^v2[2-9]"; then
   ok "Node.js $(node --version) já está instalado"
 else
   echo "  Instalando Node.js 22 LTS via NodeSource..."
@@ -108,17 +107,15 @@ step "Verificando pnpm..."
 if command -v pnpm &>/dev/null; then
   ok "pnpm $(pnpm --version) já está instalado"
 else
-  echo "  Instalando pnpm..."
   npm install -g pnpm --quiet
-  ok "pnpm $(pnpm --version) instalado"
+  ok "pnpm instalado"
 fi
 
 # ── PM2 ─────────────────────────────────────────────────────
 step "Verificando PM2..."
 if command -v pm2 &>/dev/null; then
-  ok "PM2 $(pm2 --version) já está instalado"
+  ok "PM2 já está instalado"
 else
-  echo "  Instalando PM2..."
   npm install -g pm2 --quiet
   ok "PM2 instalado"
 fi
@@ -128,42 +125,48 @@ step "Verificando Nginx..."
 if command -v nginx &>/dev/null; then
   ok "Nginx já está instalado"
 else
-  echo "  Instalando Nginx..."
   apt-get install -y -qq nginx
   ok "Nginx instalado"
 fi
 
-# ── Código do app ────────────────────────────────────────────
-step "Obtendo código do VPS Drive..."
-if [[ -n "$GIT_REPO" ]]; then
-  echo "  Clonando repositório: $GIT_REPO"
-  if [[ -d "$INSTALL_DIR" ]]; then
-    warn "Diretório $INSTALL_DIR já existe. Atualizando..."
-    cd "$INSTALL_DIR" && git pull
-  else
-    git clone "$GIT_REPO" "$INSTALL_DIR"
-  fi
-  ok "Repositório clonado em $INSTALL_DIR"
-else
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ── Localizar ou obter o código do app ────────────────────────
+step "Localizando código do VPS Drive..."
+
+# Detectar modo: (1) executado de dentro do projeto, (2) INSTALL_DIR já existe, (3) clonar
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || echo "")"
+PROJECT_ROOT=""
+
+# Verificar se o script está dentro do projeto
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../package.json" ]]; then
   PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-  if [[ -f "$PROJECT_ROOT/package.json" ]]; then
-    echo "  Copiando arquivos locais de $PROJECT_ROOT para $INSTALL_DIR..."
+elif [[ -f "$PWD/package.json" ]]; then
+  PROJECT_ROOT="$PWD"
+fi
+
+if [[ -n "$PROJECT_ROOT" ]]; then
+  echo "  Projeto encontrado em: $PROJECT_ROOT"
+  if [[ "$PROJECT_ROOT" != "$INSTALL_DIR" ]]; then
+    echo "  Copiando arquivos para $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR"
-    rsync -a --exclude='node_modules' --exclude='.git' --exclude='dist' \
+    rsync -a --exclude='node_modules' --exclude='.git' --exclude='*/dist' \
       "$PROJECT_ROOT/" "$INSTALL_DIR/"
-    ok "Arquivos copiados para $INSTALL_DIR"
-  else
-    error "Nenhum repositório git informado e não foi encontrado projeto local. Informe uma URL de repositório."
   fi
+  ok "Código localizado em $INSTALL_DIR"
+elif [[ -f "$INSTALL_DIR/package.json" ]]; then
+  echo "  Instalação existente detectada em $INSTALL_DIR"
+  ok "Usando código existente em $INSTALL_DIR"
+else
+  # Último recurso: pedir URL do repositório git
+  echo ""
+  echo -e "${YELLOW}Não foi encontrado o código do projeto localmente.${NC}"
+  read -rp "URL do repositório git para clonar: " GIT_REPO
+  [[ -z "$GIT_REPO" ]] && error "URL do repositório é necessária quando o projeto não está presente localmente."
+  echo "  Clonando $GIT_REPO..."
+  git clone "$GIT_REPO" "$INSTALL_DIR"
+  ok "Repositório clonado em $INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
-
-# ── Instalar dependências ────────────────────────────────────
-step "Instalando dependências (pnpm install)..."
-pnpm install --frozen-lockfile 2>&1 | tail -3
-ok "Dependências instaladas"
 
 # ── Arquivo .env ─────────────────────────────────────────────
 step "Gerando arquivo .env..."
@@ -173,6 +176,7 @@ PORT=$APP_PORT
 CLERK_PUBLISHABLE_KEY=$CLERK_PUB_KEY
 CLERK_SECRET_KEY=$CLERK_SECRET_KEY
 VITE_CLERK_PUBLISHABLE_KEY=$CLERK_PUB_KEY
+BASE_PATH=/
 NODE_ENV=production
 EOF
 chmod 600 "$INSTALL_DIR/.env"
@@ -184,9 +188,15 @@ mkdir -p "$STORAGE_PATH"
 chmod 755 "$STORAGE_PATH"
 ok "Diretório criado: $STORAGE_PATH"
 
+# ── Instalar dependências ────────────────────────────────────
+step "Instalando dependências (pnpm install)..."
+pnpm install --frozen-lockfile 2>&1 | tail -3
+ok "Dependências instaladas"
+
 # ── Build frontend ────────────────────────────────────────────
 step "Fazendo build do frontend..."
-pnpm --filter @workspace/vps-drive run build 2>&1 | tail -5
+BASE_PATH=/ PORT=3000 NODE_ENV=production \
+  pnpm --filter @workspace/vps-drive run build 2>&1 | tail -5
 ok "Frontend compilado"
 
 # ── Build backend ─────────────────────────────────────────────
@@ -196,20 +206,18 @@ ok "Servidor compilado"
 
 # ── Configurar Nginx ─────────────────────────────────────────
 step "Configurando Nginx..."
-cat > /etc/nginx/sites-available/vps-drive <<EOF
+cat > /etc/nginx/sites-available/vps-drive <<NGINX
 server {
     listen 80;
     server_name $VPS_HOST;
 
     client_max_body_size 500M;
 
-    # Frontend estático
     location / {
         root $INSTALL_DIR/artifacts/vps-drive/dist/public;
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API Node.js
     location /api/ {
         proxy_pass http://localhost:$APP_PORT;
         proxy_http_version 1.1;
@@ -225,11 +233,9 @@ server {
         proxy_send_timeout 300;
     }
 }
-EOF
+NGINX
 
-# Ativar site
 ln -sf /etc/nginx/sites-available/vps-drive /etc/nginx/sites-enabled/vps-drive
-# Remover default se existir
 rm -f /etc/nginx/sites-enabled/default
 
 nginx -t 2>&1 && systemctl reload nginx
@@ -237,20 +243,25 @@ ok "Nginx configurado e recarregado"
 
 # ── Iniciar com PM2 ───────────────────────────────────────────
 step "Iniciando servidor com PM2..."
-cd "$INSTALL_DIR"
-
-# Parar instância anterior se existir
 pm2 stop vps-drive-api 2>/dev/null || true
 pm2 delete vps-drive-api 2>/dev/null || true
 
-# Iniciar novo processo
-env $(cat .env | grep -v '^#' | xargs) \
-  pm2 start artifacts/api-server/dist/index.mjs \
+# Carregar variáveis do .env para o processo PM2
+set -a
+# shellcheck source=/dev/null
+source "$INSTALL_DIR/.env"
+set +a
+
+pm2 start "$INSTALL_DIR/artifacts/api-server/dist/index.mjs" \
   --name "vps-drive-api" \
   --cwd "$INSTALL_DIR"
 
 pm2 save
-pm2 startup 2>&1 | tail -5
+# Configurar startup automático
+STARTUP_CMD=$(pm2 startup 2>&1 | grep "^sudo" | head -1)
+if [[ -n "$STARTUP_CMD" ]]; then
+  eval "$STARTUP_CMD" 2>/dev/null || true
+fi
 ok "Servidor iniciado com PM2"
 
 # ── Mensagem final ───────────────────────────────────────────
@@ -261,14 +272,14 @@ ${BOLD}${GREEN}╔════════════════════�
 
 ${BOLD}Próximos passos:${NC}
 
-  1. Acesse no navegador: ${CYAN}http://$VPS_HOST/setup${NC}
+  1. Abra no navegador: ${CYAN}http://$VPS_HOST/setup${NC}
   2. Crie o usuário administrador (nome, e-mail e senha)
-  3. Após criar o usuário, faça login em: ${CYAN}http://$VPS_HOST${NC}
+  3. Após criação, faça login em: ${CYAN}http://$VPS_HOST${NC}
 
 ${BOLD}Comandos úteis:${NC}
-  pm2 status             — ver status do servidor
-  pm2 logs vps-drive-api — ver logs em tempo real
-  pm2 restart vps-drive-api — reiniciar o servidor
+  pm2 status                  — status do servidor
+  pm2 logs vps-drive-api      — logs em tempo real
+  pm2 restart vps-drive-api   — reiniciar o servidor
 
-${YELLOW}Dica: Para ativar HTTPS, consulte DEPLOY.md (seção 9 — Certbot).${NC}
+${YELLOW}Dica: Para HTTPS com Let's Encrypt, consulte DEPLOY.md (seção 9).${NC}
 "
