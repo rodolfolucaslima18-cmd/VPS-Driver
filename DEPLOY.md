@@ -8,6 +8,7 @@ Guia completo para hospedar o VPS Drive na sua própria VPS com Node.js.
 
 - Node.js 20+ (recomendado: 22 LTS)
 - pnpm 10+
+- PostgreSQL 14+ (banco de dados)
 - VPS Linux (Ubuntu 22.04+ recomendado)
 - Domínio ou IP público
 
@@ -56,37 +57,51 @@ pnpm install
 
 ## 4. Configurar variáveis de ambiente
 
-Crie o arquivo `/opt/vps-drive/.env` (ou configure no sistema):
+Crie o arquivo `/opt/vps-drive/.env`:
 
 ```bash
 # Diretório onde os arquivos serão armazenados na VPS
-# MUDE para o caminho desejado, ex: /data/vps-share
-STORAGE_PATH=/data/vps-share
+STORAGE_PATH=/data/vps-drive
 
 # Porta do servidor API
 PORT=5000
 
-# ⚠️  As chaves do Clerk são configuradas automaticamente pelo Replit
-# quando você publica o app. NÃO copie as chaves de desenvolvimento.
-# Use as chaves de PRODUÇÃO do seu app Clerk:
-CLERK_SECRET_KEY=sk_live_...
-CLERK_PUBLISHABLE_KEY=pk_live_...
-VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
+# URL de conexão com o PostgreSQL (obrigatório)
+DATABASE_URL=postgresql://usuario:senha@localhost:5432/vpsdrive
 
-# Ambiente de produção
+# Chave secreta para assinar sessões — gere com: openssl rand -hex 32
+SESSION_SECRET=gere-uma-chave-secreta-aleatoria-aqui
+
+# Defina como "true" somente se o app estiver atrás de HTTPS (Nginx + TLS).
+# Deixe "false" para instalações via IP ou sem certificado TLS.
+COOKIE_SECURE=true
+
+# Ambiente
 NODE_ENV=production
 ```
 
 Crie o diretório de armazenamento:
 
 ```bash
-mkdir -p /data/vps-share
-chmod 755 /data/vps-share
+mkdir -p /data/vps-drive
+chmod 755 /data/vps-drive
 ```
 
 ---
 
-## 5. Build do frontend
+## 5. Aplicar schema do banco de dados
+
+Execute este passo **uma vez** antes de iniciar o servidor pela primeira vez (e sempre que o schema for atualizado):
+
+```bash
+cd /opt/vps-drive
+DATABASE_URL=postgresql://usuario:senha@localhost:5432/vpsdrive \
+  pnpm --filter @workspace/db run push --accept-data-loss
+```
+
+---
+
+## 6. Build do frontend
 
 ```bash
 cd /opt/vps-drive
@@ -97,7 +112,7 @@ Os arquivos compilados ficam em `artifacts/vps-drive/dist/public/`.
 
 ---
 
-## 6. Build da API
+## 7. Build da API
 
 ```bash
 cd /opt/vps-drive
@@ -106,7 +121,7 @@ pnpm --filter @workspace/api-server run build
 
 ---
 
-## 7. Configurar o servidor (Nginx)
+## 8. Configurar o servidor (Nginx)
 
 O Nginx faz proxy das requisições para o Node.js e serve o frontend estático.
 
@@ -120,6 +135,8 @@ Crie `/etc/nginx/sites-available/vps-drive`:
 server {
     listen 80;
     server_name seu-dominio.com;  # ou seu IP
+
+    client_max_body_size 500M;
 
     # Frontend estático
     location / {
@@ -139,21 +156,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
-        # Aumentar timeout e tamanho para uploads de arquivos grandes
         proxy_read_timeout 300;
         proxy_connect_timeout 300;
         proxy_send_timeout 300;
-        client_max_body_size 500M;
-    }
-
-    # Clerk proxy (autenticação)
-    location /api/__clerk/ {
-        proxy_pass http://localhost:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -168,34 +173,41 @@ sudo systemctl reload nginx
 
 ---
 
-## 8. Rodar com PM2
+## 9. Rodar com PM2
 
 ```bash
 cd /opt/vps-drive
 
 # Iniciar o servidor API com PM2
-PORT=5000 STORAGE_PATH=/data/vps-share NODE_ENV=production \
-  pm2 start artifacts/api-server/dist/index.mjs --name "vps-drive-api"
+pm2 start artifacts/api-server/dist/index.mjs \
+  --name "vps-drive-api" \
+  --cwd /opt/vps-drive
 
 # Salvar configuração para reiniciar automaticamente
 pm2 save
 pm2 startup  # siga as instruções que o PM2 mostrar
 ```
 
+As variáveis de ambiente são carregadas automaticamente do arquivo `.env`.
+
 ---
 
-## 9. HTTPS com Let's Encrypt (recomendado)
+## 10. HTTPS com Let's Encrypt (recomendado)
 
 ```bash
 sudo apt install certbot python3-certbot-nginx -y
 sudo certbot --nginx -d seu-dominio.com
 ```
 
-O Certbot configura HTTPS automaticamente.
+O Certbot configura HTTPS automaticamente. Após isso, certifique-se de que o `.env` contém `COOKIE_SECURE=true` e reinicie:
+
+```bash
+pm2 restart vps-drive-api
+```
 
 ---
 
-## 10. Verificar funcionamento
+## 11. Verificar funcionamento
 
 ```bash
 # Checar se o servidor está rodando
@@ -208,17 +220,19 @@ pm2 logs vps-drive-api
 curl http://localhost:5000/api/healthz
 ```
 
-Acesse `http://seu-dominio.com` no navegador — faça login e comece a usar!
+Acesse `http://seu-dominio.com/setup` no navegador para criar o primeiro usuário administrador.
 
 ---
 
 ## Gerenciar usuários
 
-Os usuários são gerenciados pelo painel do **Clerk**. Após fazer deploy:
+Os usuários são gerenciados pelo **painel de administração** integrado ao VPS Drive:
 
-1. Acesse [dashboard.clerk.com](https://dashboard.clerk.com)
-2. Selecione seu app
-3. Vá em **Users** para criar, bloquear ou remover usuários
+1. Faça login com o usuário Master
+2. Clique em **Admin** no menu do Drive
+3. Crie, suspenda ou remova usuários diretamente pelo painel
+
+Não há necessidade de serviços externos — tudo é auto-hospedado.
 
 ---
 
@@ -229,6 +243,7 @@ cd /opt/vps-drive
 git pull  # ou rsync do novo código
 
 pnpm install
+DATABASE_URL=... pnpm --filter @workspace/db run push --accept-data-loss
 pnpm --filter @workspace/vps-drive run build
 pnpm --filter @workspace/api-server run build
 
@@ -244,7 +259,7 @@ sudo systemctl reload nginx
 |---|---|---|
 | `STORAGE_PATH` | Sim | Diretório onde os arquivos são armazenados |
 | `PORT` | Sim | Porta do servidor API (ex: 5000) |
-| `CLERK_SECRET_KEY` | Sim | Chave secreta do Clerk (produção) |
-| `CLERK_PUBLISHABLE_KEY` | Sim | Chave pública do Clerk (produção) |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Sim | Mesma chave pública (para o frontend) |
+| `DATABASE_URL` | Sim | URL de conexão PostgreSQL |
+| `SESSION_SECRET` | Sim | Chave secreta para sessões (gere com `openssl rand -hex 32`) |
+| `COOKIE_SECURE` | Não | `true` se HTTPS estiver ativo, `false` para HTTP |
 | `NODE_ENV` | Sim | `production` |

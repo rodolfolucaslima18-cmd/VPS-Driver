@@ -56,6 +56,12 @@ echo ""
 read -rp "IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): " VPS_HOST
 [[ -z "$VPS_HOST" ]] && error "O IP ou domínio é obrigatório."
 
+echo ""
+echo "O VPS Drive requer um banco de dados PostgreSQL."
+echo "Exemplo de URL: postgresql://usuario:senha@localhost:5432/vpsdrive"
+read -rp "URL de conexão do PostgreSQL (DATABASE_URL): " DATABASE_URL
+[[ -z "$DATABASE_URL" ]] && error "DATABASE_URL é obrigatório para o VPS Drive funcionar."
+
 # Detectar se é IP ou domínio
 is_ip() {
   [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
@@ -87,6 +93,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/vps-drive}"
 # ── Resumo ───────────────────────────────────────────────────
 echo -e "\n${BOLD}Resumo:${NC}"
 echo "  Host:              $VPS_HOST"
+echo "  Banco de dados:    ${DATABASE_URL%%@*}@..."
 echo "  Armazenamento:     $STORAGE_PATH"
 echo "  Porta interna:     $APP_PORT"
 echo "  Diretório do app:  $INSTALL_DIR"
@@ -203,10 +210,16 @@ cd "$INSTALL_DIR"
 # ── Arquivo .env ─────────────────────────────────────────────
 step "Gerando arquivo .env..."
 SESSION_SECRET=$(openssl rand -hex 32)
+COOKIE_SECURE="false"
+if [[ "$USE_HTTPS" == "true" ]]; then
+  COOKIE_SECURE="true"
+fi
 cat > "$INSTALL_DIR/.env" <<EOF
 STORAGE_PATH=$STORAGE_PATH
 PORT=$APP_PORT
+DATABASE_URL=$DATABASE_URL
 SESSION_SECRET=$SESSION_SECRET
+COOKIE_SECURE=$COOKIE_SECURE
 BASE_PATH=/
 NODE_ENV=production
 EOF
@@ -223,6 +236,10 @@ ok "Diretório criado: $STORAGE_PATH"
 step "Instalando dependências (pnpm install)..."
 pnpm install --frozen-lockfile 2>&1 | tail -3
 ok "Dependências instaladas"
+
+step "Aplicando schema do banco de dados..."
+DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push --accept-data-loss 2>&1 | tail -5
+ok "Schema do banco de dados aplicado"
 
 # ── Build frontend ────────────────────────────────────────────
 step "Fazendo build do frontend..."

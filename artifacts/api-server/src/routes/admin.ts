@@ -8,15 +8,6 @@ import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
 
-// GET /admin/me — verifica se o usuário atual é o Master (mantido para compatibilidade)
-router.get("/admin/me", async (req, res): Promise<void> => {
-  if (!req.session?.userId) {
-    res.status(401).json({ error: "Não autenticado." });
-    return;
-  }
-  res.json({ isMaster: req.session.role === "master" });
-});
-
 // GET /admin/users — listar todos os usuários
 router.get("/admin/users", requireMaster, async (_req, res): Promise<void> => {
   try {
