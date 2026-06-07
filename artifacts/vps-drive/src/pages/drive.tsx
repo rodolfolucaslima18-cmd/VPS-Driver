@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
-  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users
+  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2
 } from "lucide-react";
+import { ShareModal } from "@/components/ShareModal";
 import { useClerk } from "@clerk/react";
 import { useLocation } from "wouter";
 import {
@@ -77,6 +78,7 @@ export default function DrivePage() {
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
+  const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +198,13 @@ export default function DrivePage() {
   return (
     <div className="flex h-screen bg-background text-foreground">
       <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} />
+      {shareItem && (
+        <ShareModal
+          filePath={shareItem.path}
+          fileName={shareItem.name}
+          onClose={() => setShareItem(null)}
+        />
+      )}
 
       {/* Hidden file input */}
       <input
@@ -366,9 +375,22 @@ export default function DrivePage() {
                   {openMenuPath === file.path && (
                     <div
                       data-nomenu
-                      className="absolute top-8 right-1.5 z-20 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[120px]"
+                      className="absolute top-8 right-1.5 z-20 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {file.type === "file" && (
+                        <button
+                          data-nomenu
+                          className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+                          onClick={() => {
+                            setOpenMenuPath(null);
+                            setShareItem(file as FileItem);
+                          }}
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                          Compartilhar
+                        </button>
+                      )}
                       <button
                         data-nomenu
                         className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent transition-colors"
