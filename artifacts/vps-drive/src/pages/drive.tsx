@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
-  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp
+  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
+  LayoutGrid, List
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -107,6 +108,9 @@ export default function DrivePage() {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState("");
   const [pendingDeleteItem, setPendingDeleteItem] = useState<{ path: string; name: string } | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    try { return (localStorage.getItem("vps-drive-view") as "grid" | "list") ?? "grid"; } catch { return "grid"; }
+  });
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
@@ -477,6 +481,17 @@ export default function DrivePage() {
             {uploadProgress && (
               <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>
             )}
+            <button
+              className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
+              title={viewMode === "grid" ? "Mudar para lista" : "Mudar para grade"}
+              onClick={() => {
+                const next = viewMode === "grid" ? "list" : "grid";
+                setViewMode(next);
+                try { localStorage.setItem("vps-drive-view", next); } catch {}
+              }}
+            >
+              {viewMode === "grid" ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+            </button>
             <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setNewFolderMode(true)}>
               <FolderPlus className="w-3.5 h-3.5" />
               Nova Pasta
@@ -523,98 +538,171 @@ export default function DrivePage() {
           )}
 
           {isLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {[...Array(12)].map((_, i) => (
-                <Skeleton key={i} className="h-28 rounded-xl" />
-              ))}
-            </div>
+            viewMode === "grid" ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                {[...Array(12)].map((_, i) => (
+                  <Skeleton key={i} className="h-28 rounded-xl" />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {[...Array(8)].map((_, i) => (
+                  <Skeleton key={i} className="h-10 rounded-lg" />
+                ))}
+              </div>
+            )
           ) : files && files.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {files.map((file) => (
-                <div
-                  key={file.path}
-                  className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
-                  onClick={(e) => {
-                    // Skip if clicking the action menu or rename input
-                    if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
-                    if (file.type === "directory") setCurrentPath(file.path);
-                    else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
-                    else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
-                  }}
-                >
-                  {/* Action menu */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        data-nomenu
-                        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-[140px]">
-                      {file.type === "file" && (
-                        <DropdownMenuItem
-                          className="gap-2"
-                          onClick={() => setShareItem(file as FileItem)}
+            viewMode === "grid" ? (
+              /* ── Grid view ── */
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                {files.map((file) => (
+                  <div
+                    key={file.path}
+                    className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
+                      if (file.type === "directory") setCurrentPath(file.path);
+                      else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
+                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
+                    }}
+                  >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          data-nomenu
+                          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <Share2 className="w-3.5 h-3.5" />
-                          Compartilhar
+                          <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[140px]">
+                        {file.type === "file" && (
+                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                            <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
+                          <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        className="gap-2"
-                        onClick={() => {
-                          setRenamingPath(file.path);
-                          setRenamingValue(file.name);
-                        }}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Renomear
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="gap-2 text-destructive focus:text-destructive"
-                        onClick={() => doDelete(file.path, file.name)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Excluir
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={() => doDelete(file.path, file.name)}>
+                          <Trash2 className="w-3.5 h-3.5" />Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
 
-                  {/* Icon */}
-                  {file.type === "directory" ? (
-                    <Folder className="w-11 h-11 text-primary mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
-                  ) : (
-                    <File className="w-11 h-11 text-muted-foreground mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
-                  )}
+                    {file.type === "directory" ? (
+                      <Folder className="w-11 h-11 text-primary mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
+                    ) : (
+                      <File className="w-11 h-11 text-muted-foreground mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
+                    )}
 
-                  {/* Name — inline rename or label */}
-                  {renamingPath === file.path ? (
-                    <input
-                      data-nomenu
-                      ref={renameInputRef}
-                      value={renamingValue}
-                      onChange={(e) => setRenamingValue(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") doRename(); if (e.key === "Escape") setRenamingPath(null); }}
-                      onBlur={doRename}
-                      className="w-full text-sm text-center bg-transparent border-b border-primary outline-none"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className="text-sm font-medium text-center w-full truncate px-1">{file.name}</span>
-                  )}
+                    {renamingPath === file.path ? (
+                      <input
+                        data-nomenu
+                        ref={renameInputRef}
+                        value={renamingValue}
+                        onChange={(e) => setRenamingValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") doRename(); if (e.key === "Escape") setRenamingPath(null); }}
+                        onBlur={doRename}
+                        className="w-full text-sm text-center bg-transparent border-b border-primary outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="text-sm font-medium text-center w-full truncate px-1">{file.name}</span>
+                    )}
 
-                  <div className="flex flex-col items-center gap-0.5 mt-0.5">
-                    <span className="text-xs text-muted-foreground">
+                    <div className="flex flex-col items-center gap-0.5 mt-0.5">
+                      <span className="text-xs text-muted-foreground">
+                        {file.type === "directory" ? "Pasta" : formatSize(file.size)}
+                      </span>
+                      <span className="text-xs text-muted-foreground/70">{formatDate(file.modifiedAt)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* ── List view ── */
+              <div className="flex flex-col rounded-xl border border-border overflow-hidden">
+                {/* Header */}
+                <div className="grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
+                  <span className="w-5" />
+                  <span>Nome</span>
+                  <span className="text-right">Tamanho</span>
+                  <span className="text-right">Modificado</span>
+                  <span />
+                </div>
+                {files.map((file, idx) => (
+                  <div
+                    key={file.path}
+                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
+                      if (file.type === "directory") setCurrentPath(file.path);
+                      else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
+                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
+                    }}
+                  >
+                    {/* Icon */}
+                    {file.type === "directory" ? (
+                      <Folder className="w-4 h-4 text-primary shrink-0" strokeWidth={1.5} />
+                    ) : (
+                      <File className="w-4 h-4 text-muted-foreground shrink-0" strokeWidth={1.5} />
+                    )}
+
+                    {/* Name / rename input */}
+                    {renamingPath === file.path ? (
+                      <input
+                        data-nomenu
+                        ref={renameInputRef}
+                        value={renamingValue}
+                        onChange={(e) => setRenamingValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") doRename(); if (e.key === "Escape") setRenamingPath(null); }}
+                        onBlur={doRename}
+                        className="text-sm bg-transparent border-b border-primary outline-none w-full"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="text-sm truncate">{file.name}</span>
+                    )}
+
+                    {/* Size */}
+                    <span className="text-xs text-muted-foreground text-right">
                       {file.type === "directory" ? "Pasta" : formatSize(file.size)}
                     </span>
-                    <span className="text-xs text-muted-foreground/70">{formatDate(file.modifiedAt)}</span>
+
+                    {/* Date */}
+                    <span className="text-xs text-muted-foreground/70 text-right">{formatDate(file.modifiedAt)}</span>
+
+                    {/* Actions */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          data-nomenu
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent justify-self-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[140px]">
+                        {file.type === "file" && (
+                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                            <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
+                          <Pencil className="w-3.5 h-3.5" />Renomear
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={() => doDelete(file.path, file.name)}>
+                          <Trash2 className="w-3.5 h-3.5" />Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-3 text-muted-foreground min-h-[300px]">
               <div className="p-5 rounded-full bg-accent/50">
