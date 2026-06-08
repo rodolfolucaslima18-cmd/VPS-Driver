@@ -1,0 +1,208 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Sun Jun  7 11:00:37 PM -03 2026
+
+  System load:  0.0                Processes:             145
+  Usage of /:   17.1% of 97.27GB   Users logged in:       1
+  Memory usage: 24%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Sun Jun  7 22:45:04 2026 from 143.208.112.121
+root@vps-15458837:~# bash <(curl -sL https://central-share-hub.replit.app/api/download/install.sh)
+
+╔══════════════════════════════════════╗
+║         VPS Drive — Instalador       ║
+╚══════════════════════════════════════╝
+
+Este script instala e configura o VPS Drive na sua VPS.
+Requisitos: Ubuntu 20.04+ ou Debian 11+
+
+
+▶ Verificando sistema operacional...
+✓ Sistema compatível: Ubuntu 22.04.5 LTS
+
+Configuração da instalação
+Responda as perguntas abaixo (Enter = valor padrão entre colchetes):
+
+IP ou domínio da VPS (ex: 192.168.1.1 ou meusite.com): 129.121.52.84
+
+O VPS Drive requer um banco de dados PostgreSQL.
+Exemplo de URL: postgresql://usuario:senha@localhost:5432/vpsdrive
+URL de conexão do PostgreSQL (DATABASE_URL): postgresql://vpsdrive:Vpsdrive2026@localhost:5432/vpsdrive
+⚠ Host é um endereço IP — HTTPS via Let's Encrypt requer um domínio. Continuando com HTTP.
+Pasta para guardar os arquivos [/data/vps-drive]:
+Porta do servidor interno [5000]:
+Pasta de instalação do app [/opt/vps-drive]:
+
+Defina as credenciais do usuário administrador (criadas automaticamente ao final):
+Nome do administrador: Rodolfo Lucas Lima
+E-mail do administrador: rodolfo@fineain.com.br
+Senha do administrador (mín. 8 caracteres):
+
+Resumo:
+  Host:              129.121.52.84
+  Banco de dados:    postgresql://vpsdrive:Vpsdrive2026@...
+  Armazenamento:     /data/vps-drive
+  Porta interna:     5000
+  Diretório do app:  /opt/vps-drive
+  Admin:             Rodolfo Lucas Lima <rodolfo@fineain.com.br>
+  HTTPS:             Não (HTTP apenas)
+
+Confirmar instalação? [s/N]: s
+
+▶ Atualizando lista de pacotes e instalando ferramentas básicas...
+✓ Ferramentas instaladas
+
+▶ Verificando Node.js...
+✓ Node.js v22.22.3 já está instalado
+
+▶ Verificando pnpm...
+  pnpm v11.5.2 detectado.
+  pnpm v11+ bloqueia build scripts por padrão (runDepsStatusCheck).
+  Instalando pnpm v10 para compatibilidade...
+1 package is looking for funding
+  run `npm fund` for details
+✓ pnpm 10.34.1 instalado (v10 — compatível com este instalador)
+  → Para voltar ao pnpm v11 após a instalação: npm install -g pnpm@latest
+
+▶ Verificando PM2...
+✓ PM2 já está instalado
+
+▶ Verificando Nginx...
+✓ Nginx já está instalado
+
+▶ Localizando código do VPS Drive...
+  Instalação detectada em /opt/vps-drive
+  Atualizando código via https://central-share-hub.replit.app...
+  Código atualizado
+✓ Usando instalação existente em /opt/vps-drive
+
+▶ Gerando arquivo .env...
+✓ Arquivo .env criado
+
+▶ Criando diretório de armazenamento...
+✓ Diretório criado: /data/vps-drive
+
+▶ Instalando dependências (pnpm install)...
+  Limpando node_modules antigo para garantir estado limpo...
++ prettier 3.8.3
++ typescript 5.9.3
+
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+. preinstall: Done
+Done in 5.4s using pnpm v10.34.1
+✓ Dependências instaladas
+
+▶ Aplicando schema do banco de dados...
+
+> @workspace/db@0.0.0 push-force /opt/vps-drive/lib/db
+> drizzle-kit push --force --config ./drizzle.config.ts
+
+Reading config file '/opt/vps-drive/lib/db/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] Pulling schema from database...
+[✓] Pulling schema from database...
+[✓] Changes applied
+✓ Schema do banco de dados aplicado
+
+▶ Fazendo build do frontend...
+src/components/ui/sheet.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+✓ 1827 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/public/index.html                   1.37 kB │ gzip:   0.54 kB
+dist/public/assets/index-DdtmveXf.css  104.89 kB │ gzip:  16.82 kB
+dist/public/assets/index-B4TfSv5T.js   406.42 kB │ gzip: 128.28 kB
+✓ built in 2.59s
+✓ Frontend compilado
+
+▶ Fazendo build do servidor...
+  dist/pino-file.mjs.map             229.0kb
+  dist/pino-pretty.mjs.map           204.0kb
+  dist/thread-stream-worker.mjs.map   12.0kb
+
+⚡ Done in 232ms
+✓ Servidor compilado
+
+▶ Configurando Nginx...
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+✓ Nginx configurado e recarregado
+
+▶ Iniciando servidor com PM2...
+
+                        -------------
+
+__/\\\\\\\\\\\\\____/\\\\____________/\\\\____/\\\\\\\\\_____
+ _\/\\\/////////\\\_\/\\\\\\________/\\\\\\__/\\\///////\\\___
+  _\/\\\_______\/\\\_\/\\\//\\\____/\\\//\\\_\///______\//\\\__
+   _\/\\\\\\\\\\\\\/__\/\\\\///\\\/\\\/_\/\\\___________/\\\/___
+    _\/\\\/////////____\/\\\__\///\\\/___\/\\\________/\\\//_____
+     _\/\\\_____________\/\\\____\///_____\/\\\_____/\\\//________
+      _\/\\\_____________\/\\\_____________\/\\\___/\\\/___________
+       _\/\\\_____________\/\\\_____________\/\\\__/\\\\\\\\\\\\\\\_
+        _\///______________\///______________\///__\///////////////__
+
+
+                          Runtime Edition
+
+        PM2 is a Production Process Manager for Node.js applications
+                     with a built-in Load Balancer.
+
+                Start and Daemonize any application:
+                $ pm2 start app.js
+
+                Load Balance 4 instances of api.js:
+                $ pm2 start api.js -i 4
+
+                Monitor in production:
+                $ pm2 monitor
+
+                Make pm2 auto-boot at server restart:
+                $ pm2 startup
+
+                To go further checkout:
+                http://pm2.io/
+
+
+                        -------------
+
+[PM2] Spawning PM2 daemon with pm2_home=/root/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2] Starting /opt/vps-drive/artifacts/api-server/dist/index.mjs in fork_mode (1 instance)
+[PM2] Done.
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api      │ fork     │ 0    │ online    │ 0%       │ 29.4mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+root@vps-15458837:~#
