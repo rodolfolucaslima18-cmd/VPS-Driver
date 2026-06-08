@@ -56,10 +56,13 @@ DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || e
 
 ok "Configuração carregada (porta: $APP_PORT)"
 
-# Garantir VITE_ONLYOFFICE_URL no .env (sem sobrescrever se já existe)
+# Garantir ONLYOFFICE_URL e VITE_ONLYOFFICE_URL no .env (sem sobrescrever se já existem)
+if ! grep -q "^ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
+  echo "ONLYOFFICE_URL=" >> "$ENV_FILE"
+  warn "ONLYOFFICE_URL adicionado ao .env (vazio). Edite o .env para configurar o OnlyOffice."
+fi
 if ! grep -q "^VITE_ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
   echo "VITE_ONLYOFFICE_URL=" >> "$ENV_FILE"
-  warn "VITE_ONLYOFFICE_URL adicionado ao .env (vazio). Edite o .env para configurar o OnlyOffice."
 fi
 
 # ── Baixar e extrair código novo ─────────────────────────────

@@ -83,8 +83,10 @@ fi
 
 echo ""
 read -rp "Deseja instalar o OnlyOffice Document Server para edição de documentos? (requer Docker, ~1 GB) [s/N]: " WANT_ONLYOFFICE
+ONLYOFFICE_URL=""
 VITE_ONLYOFFICE_URL=""
 if [[ "${WANT_ONLYOFFICE,,}" == "s" ]]; then
+  ONLYOFFICE_URL="http://$VPS_HOST:8080"
   VITE_ONLYOFFICE_URL="http://$VPS_HOST:8080"
 fi
 
@@ -264,6 +266,7 @@ COOKIE_SECURE=$COOKIE_SECURE
 BASE_PATH=/
 NODE_ENV=production
 VPS_HOST=$VPS_HOST
+ONLYOFFICE_URL=$ONLYOFFICE_URL
 VITE_ONLYOFFICE_URL=$VITE_ONLYOFFICE_URL
 EOF
 chmod 600 "$INSTALL_DIR/.env"
