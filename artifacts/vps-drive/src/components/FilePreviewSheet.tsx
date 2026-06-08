@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Download, File, Eye, ExternalLink } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Download, File, AlertCircle } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -35,149 +35,209 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR");
 }
 
-function getPreviewKind(mimeType: string | null): "image" | "video" | "pdf" | "text" | "office" | "unsupported" {
+function getExt(name: string): string {
+  const idx = name.lastIndexOf(".");
+  return idx >= 0 ? name.slice(idx).toLowerCase() : "";
+}
+
+type OfficeKind = "docx" | "xlsx" | "pptx" | null;
+
+function getOfficeKind(file: FileItem): OfficeKind {
+  const ext = getExt(file.name);
+  if (ext === ".docx" || ext === ".doc") return "docx";
+  if (ext === ".xlsx" || ext === ".xls") return "xlsx";
+  if (ext === ".pptx" || ext === ".ppt") return "pptx";
+  const mime = file.mimeType ?? "";
+  if (mime.includes("wordprocessingml") || mime.includes("msword")) return "docx";
+  if (mime.includes("spreadsheetml") || mime.includes("ms-excel")) return "xlsx";
+  if (mime.includes("presentationml") || mime.includes("ms-powerpoint")) return "pptx";
+  return null;
+}
+
+function getPreviewKind(mimeType: string | null): "image" | "video" | "pdf" | "text" | "unsupported" {
   if (!mimeType) return "unsupported";
-  if (
-    mimeType.startsWith("image/") &&
-    ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/bmp"].includes(mimeType)
-  ) return "image";
-  if (["video/mp4", "video/webm", "video/quicktime"].includes(mimeType)) return "video";
+  if (["image/jpeg","image/png","image/gif","image/webp","image/svg+xml","image/bmp"].includes(mimeType)) return "image";
+  if (["video/mp4","video/webm","video/quicktime"].includes(mimeType)) return "video";
   if (mimeType === "application/pdf") return "pdf";
-  const textMimePrefixes = ["text/"];
-  const textMimeTypes = ["application/json", "application/javascript", "application/xml"];
-  if (textMimePrefixes.some((p) => mimeType.startsWith(p)) || textMimeTypes.includes(mimeType)) return "text";
-  if (isOfficeMime(mimeType)) return "office";
+  if (mimeType.startsWith("text/") || ["application/json","application/javascript","application/xml"].includes(mimeType)) return "text";
   return "unsupported";
 }
 
-const OFFICE_MIMES = new Set([
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/vnd.ms-powerpoint",
-]);
-
-const OFFICE_EXTS = new Set([".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"]);
-
-function isOfficeMime(mimeType: string | null): boolean {
-  if (!mimeType) return false;
-  return OFFICE_MIMES.has(mimeType);
+async function fetchFileBuffer(path: string): Promise<ArrayBuffer> {
+  const res = await fetch(`${BASE_URL}/api/files/preview?path=${encodeURIComponent(path)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.arrayBuffer();
 }
 
-function isOfficeFile(file: FileItem): boolean {
-  if (isOfficeMime(file.mimeType)) return true;
-  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-  return OFFICE_EXTS.has(ext);
-}
+// ── DOCX Viewer ──────────────────────────────────────────────────────────────
 
-// Google app and filetype per Office extension
-type GoogleApp = "document" | "spreadsheets" | "presentation";
-const OFFICE_EXT_MAP: Record<string, { app: GoogleApp; filetype: string; label: string }> = {
-  ".docx": { app: "document",      filetype: "docx", label: "Google Docs" },
-  ".doc":  { app: "document",      filetype: "doc",  label: "Google Docs" },
-  ".xlsx": { app: "spreadsheets",  filetype: "xlsx", label: "Google Planilhas" },
-  ".xls":  { app: "spreadsheets",  filetype: "xls",  label: "Google Planilhas" },
-  ".pptx": { app: "presentation",  filetype: "pptx", label: "Google Apresentações" },
-  ".ppt":  { app: "presentation",  filetype: "ppt",  label: "Google Apresentações" },
-};
-
-function getOfficeGoogleInfo(file: FileItem) {
-  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-  return OFFICE_EXT_MAP[ext] ?? { app: "document" as GoogleApp, filetype: "docx", label: "Google Docs" };
-}
-
-async function fetchToken(filePath: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${BASE_URL}/api/files/token?path=${encodeURIComponent(filePath)}`, {
-      credentials: "include",
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { publicUrl: string };
-    return data.publicUrl;
-  } catch {
-    return null;
-  }
-}
-
-function OfficeActions({ file }: { file: FileItem }) {
-  const [loading, setLoading] = useState<"microsoft" | "google" | null>(null);
+function DocxViewer({ file }: { file: FileItem }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const buf = await fetchFileBuffer(file.path);
+        if (cancelled) return;
+        const { renderAsync } = await import("docx-preview");
+        if (cancelled || !containerRef.current) return;
+        containerRef.current.innerHTML = "";
+        await renderAsync(buf, containerRef.current, undefined, {
+          className: "docx-viewer",
+          inWrapper: true,
+          ignoreWidth: true,
+          ignoreHeight: true,
+          ignoreFonts: false,
+          breakPages: true,
+          useBase64URL: true,
+        });
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erro ao renderizar documento");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [file.path]);
+
+  if (loading) return <ViewerLoading />;
+  if (error) return <ViewerError message={error} />;
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-2"
+      style={{ minHeight: "calc(100vh - 220px)" }}
+    />
+  );
+}
+
+// ── XLSX Viewer ───────────────────────────────────────────────────────────────
+
+function XlsxViewer({ file }: { file: FileItem }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sheets, setSheets] = useState<string[]>([]);
+  const [activeSheet, setActiveSheet] = useState(0);
+  const [htmls, setHtmls] = useState<string[]>([]);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const buf = await fetchFileBuffer(file.path);
+        if (cancelled) return;
+        const XLSX = await import("xlsx");
+        const wb = XLSX.read(buf, { type: "array" });
+        if (cancelled) return;
+        const names = wb.SheetNames;
+        const htmlList = names.map((name) => {
+          const ws = wb.Sheets[name];
+          return XLSX.utils.sheet_to_html(ws, { header: "", footer: "" });
+        });
+        setSheets(names);
+        setHtmls(htmlList);
+        setActiveSheet(0);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erro ao ler planilha");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [file.path]);
+
+  if (loading) return <ViewerLoading />;
+  if (error) return <ViewerError message={error} />;
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 gap-2">
+      {sheets.length > 1 && (
+        <div className="flex gap-1 flex-wrap shrink-0">
+          {sheets.map((name, i) => (
+            <button
+              key={name}
+              onClick={() => setActiveSheet(i)}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors border ${
+                activeSheet === i
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border hover:bg-accent"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        className="xlsx-container flex-1 overflow-auto rounded-lg border border-border bg-white text-black text-xs"
+        style={{ minHeight: "calc(100vh - 260px)" }}
+        dangerouslySetInnerHTML={{ __html: htmls[activeSheet] ?? "" }}
+      />
+    </div>
+  );
+}
+
+// ── PPTX Fallback ─────────────────────────────────────────────────────────────
+
+function PptxFallback({ file }: { file: FileItem }) {
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
-  const googleInfo = getOfficeGoogleInfo(file);
-
-  async function handleMicrosoft() {
-    setLoading("microsoft");
-    setError(null);
-    const publicUrl = await fetchToken(file.path);
-    setLoading(null);
-    if (!publicUrl) { setError("Não foi possível gerar o link temporário."); return; }
-    // Microsoft Office Online Viewer — view + edit within the viewer UI
-    const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(publicUrl)}`;
-    window.open(viewerUrl, "_blank", "noopener,noreferrer");
-  }
-
-  async function handleGoogle() {
-    setLoading("google");
-    setError(null);
-    const publicUrl = await fetchToken(file.path);
-    setLoading(null);
-    if (!publicUrl) { setError("Não foi possível gerar o link temporário."); return; }
-    // Google Docs/Sheets/Slides "create from URL" — imports the file and opens an editable copy.
-    // Requires the user to be signed into Google. filetype tells Google how to interpret the import.
-    const editUrl =
-      `https://docs.google.com/${googleInfo.app}/d/create` +
-      `?filetype=${googleInfo.filetype}&url=${encodeURIComponent(publicUrl)}`;
-    window.open(editUrl, "_blank", "noopener,noreferrer");
-  }
-
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-5 text-muted-foreground py-8">
       <div className="p-5 rounded-full bg-muted/60">
         <File className="w-12 h-12 opacity-40" />
       </div>
-
-      <div className="text-center">
+      <div className="text-center space-y-1">
         <p className="font-medium text-foreground">{file.name}</p>
-        <p className="text-sm mt-1">{formatSize(file.size)}</p>
-        <p className="text-xs mt-0.5">{formatDate(file.modifiedAt)}</p>
+        <p className="text-sm">{formatSize(file.size)} · {formatDate(file.modifiedAt)}</p>
       </div>
-
-      {error && <p className="text-xs text-destructive">{error}</p>}
-
-      <div className="flex flex-col gap-2 w-full max-w-[240px]">
-        <Button
-          variant="default"
-          className="w-full gap-2"
-          onClick={handleMicrosoft}
-          disabled={loading !== null}
-        >
-          <Eye className="w-4 h-4" />
-          {loading === "microsoft" ? "Gerando link…" : "Visualizar (Microsoft Office)"}
-        </Button>
-
-        <Button
-          variant="outline"
-          className="w-full gap-2"
-          onClick={handleGoogle}
-          disabled={loading !== null}
-        >
-          <ExternalLink className="w-4 h-4" />
-          {loading === "google" ? "Gerando link…" : `Editar no ${googleInfo.label}`}
-        </Button>
-
-        <Button variant="ghost" size="sm" className="w-full gap-2 text-muted-foreground" asChild>
-          <a href={downloadUrl} download={file.name}>
-            <Download className="w-3.5 h-3.5" />
-            Baixar arquivo
-          </a>
-        </Button>
+      <div className="text-center space-y-1 text-sm max-w-[260px]">
+        <p className="font-medium text-foreground">Apresentações PowerPoint</p>
+        <p className="text-muted-foreground leading-relaxed">
+          Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador.
+          Baixe o arquivo para abrir no PowerPoint ou LibreOffice.
+        </p>
       </div>
+      <Button variant="default" asChild>
+        <a href={downloadUrl} download={file.name}>
+          <Download className="w-4 h-4 mr-2" />
+          Baixar para visualizar
+        </a>
+      </Button>
+    </div>
+  );
+}
 
-      <p className="text-xs text-muted-foreground/60 text-center max-w-[240px] leading-relaxed">
-        "Editar no {googleInfo.label}" importa o arquivo como cópia editável — requer login no Google.
-      </p>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function ViewerLoading() {
+  return (
+    <div className="flex items-center justify-center flex-1 text-muted-foreground text-sm gap-2 py-12">
+      <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+      Carregando documento…
+    </div>
+  );
+}
+
+function ViewerError({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 gap-3 text-destructive py-12">
+      <AlertCircle className="w-8 h-8" />
+      <p className="text-sm font-medium">Erro ao carregar documento</p>
+      <p className="text-xs text-muted-foreground max-w-[260px] text-center">{message}</p>
     </div>
   );
 }
@@ -200,9 +260,7 @@ function TextPreview({ file }: { file: FileItem }) {
         const contentType = res.headers.get("content-type") ?? "";
         if (contentType.includes("application/json")) {
           const data = await res.json();
-          if (data.truncated) {
-            setTruncated(true);
-          }
+          if (data.truncated) setTruncated(true);
         } else {
           const text = await res.text();
           setContent(text);
@@ -212,21 +270,8 @@ function TextPreview({ file }: { file: FileItem }) {
       .finally(() => setLoading(false));
   }, [file.path]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-        Carregando…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-40 text-destructive text-sm">
-        Erro ao carregar o arquivo.
-      </div>
-    );
-  }
+  if (loading) return <ViewerLoading />;
+  if (error) return <ViewerError message="Não foi possível carregar o arquivo." />;
 
   if (truncated) {
     return (
@@ -245,10 +290,13 @@ function TextPreview({ file }: { file: FileItem }) {
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
   const isOpen = file !== null;
-  const kind = file ? getPreviewKind(file.mimeType) : "unsupported";
-  const isOffice = file ? isOfficeFile(file) : false;
+  const officeKind = file ? getOfficeKind(file) : null;
+  const kind = file && !officeKind ? getPreviewKind(file.mimeType) : "unsupported";
+
   const previewUrl = file
     ? `${BASE_URL}/api/files/preview?path=${encodeURIComponent(file.path)}`
     : "";
@@ -260,7 +308,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
         side="right"
-        className="w-full sm:w-[50vw] sm:max-w-[720px] flex flex-col p-0 gap-0"
+        className="w-full sm:w-[60vw] sm:max-w-[860px] flex flex-col p-0 gap-0"
       >
         {file && (
           <>
@@ -272,26 +320,21 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                     {formatSize(file.size)} · {formatDate(file.modifiedAt)}
                   </p>
                 </div>
-                {!isOffice && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    asChild
-                  >
-                    <a href={downloadUrl} download={file.name}>
-                      <Download className="w-3.5 h-3.5 mr-1.5" />
-                      Baixar
-                    </a>
-                  </Button>
-                )}
+                <Button size="sm" variant="outline" className="shrink-0" asChild>
+                  <a href={downloadUrl} download={file.name}>
+                    <Download className="w-3.5 h-3.5 mr-1.5" />
+                    Baixar
+                  </a>
+                </Button>
               </div>
             </SheetHeader>
 
-            <div className="flex-1 overflow-auto p-6 flex flex-col">
-              {isOffice && <OfficeActions file={file} />}
+            <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
+              {officeKind === "docx" && <DocxViewer file={file} />}
+              {officeKind === "xlsx" && <XlsxViewer file={file} />}
+              {officeKind === "pptx" && <PptxFallback file={file} />}
 
-              {!isOffice && kind === "image" && (
+              {!officeKind && kind === "image" && (
                 <div className="flex items-center justify-center flex-1 bg-muted/40 rounded-lg overflow-hidden">
                   <img
                     src={previewUrl}
@@ -301,20 +344,16 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                 </div>
               )}
 
-              {!isOffice && kind === "video" && (
+              {!officeKind && kind === "video" && (
                 <div className="flex items-center justify-center flex-1 bg-black rounded-lg overflow-hidden">
-                  <video
-                    key={previewUrl}
-                    controls
-                    className="max-w-full max-h-[calc(100vh-200px)]"
-                  >
+                  <video key={previewUrl} controls className="max-w-full max-h-[calc(100vh-200px)]">
                     <source src={previewUrl} type={file.mimeType ?? undefined} />
                     Seu navegador não suporta reprodução de vídeo.
                   </video>
                 </div>
               )}
 
-              {!isOffice && kind === "pdf" && (
+              {!officeKind && kind === "pdf" && (
                 <iframe
                   key={previewUrl}
                   src={previewUrl}
@@ -324,9 +363,9 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                 />
               )}
 
-              {!isOffice && kind === "text" && <TextPreview file={file} />}
+              {!officeKind && kind === "text" && <TextPreview file={file} />}
 
-              {!isOffice && kind === "unsupported" && (
+              {!officeKind && kind === "unsupported" && (
                 <div className="flex flex-col items-center justify-center flex-1 gap-4 text-muted-foreground">
                   <div className="p-6 rounded-full bg-muted/60">
                     <File className="w-12 h-12 opacity-40" />

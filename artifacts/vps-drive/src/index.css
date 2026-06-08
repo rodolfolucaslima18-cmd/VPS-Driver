@@ -151,3 +151,32 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* ── Office viewers ──────────────────────────────────────────────── */
+
+/* SheetJS (xlsx) table output */
+.xlsx-container table {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  width: 100%;
+}
+.xlsx-container td,
+.xlsx-container th {
+  border: 1px solid #d1d5db;
+  padding: 3px 6px;
+  white-space: nowrap;
+  min-width: 60px;
+}
+.xlsx-container tr:nth-child(even) td {
+  background-color: #f9fafb;
+}
+
+/* docx-preview container */
+.docx-viewer .docx-wrapper {
+  background: white !important;
+  padding: 8px !important;
+}
+.docx-viewer .docx-wrapper > section.docx {
+  box-shadow: 0 1px 4px rgba(0,0,0,.12) !important;
+  margin-bottom: 16px !important;
+}
