@@ -187,11 +187,12 @@ export default function DrivePage() {
   const doDelete = useCallback(async (path: string, name: string) => {
     if (!confirm(`Excluir "${name}"? Esta ação não pode ser desfeita.`)) return;
     try {
-      await deleteMutation.mutateAsync({ params: { path } } as never);
+      await deleteMutation.mutateAsync({ params: { path } });
       invalidate();
       toast({ title: "Excluído", description: name });
-    } catch {
-      toast({ title: "Não foi possível excluir", variant: "destructive" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Não foi possível excluir", description: msg, variant: "destructive" });
     }
   }, [deleteMutation, invalidate, toast]);
 

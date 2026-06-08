@@ -72,7 +72,7 @@ router.get("/share/list", requireAuth, async (req, res): Promise<void> => {
 
 // GET /share/:token — serve the file publicly (no auth required)
 router.get("/share/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
+  const token = req.params.token as string;
   const entry = await getShareToken(token);
 
   if (!entry) {
@@ -129,7 +129,7 @@ router.delete("/share/:token", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const { token } = req.params;
+  const token = req.params.token as string;
   const entry = await getShareToken(token);
 
   if (!entry) {
