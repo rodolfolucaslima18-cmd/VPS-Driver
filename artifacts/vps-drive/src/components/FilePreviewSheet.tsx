@@ -41,9 +41,9 @@ function getExt(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-// "docx"     → DocxViewer  (docx-preview client-side, OOXML only)
-// "doc"      → DocHtmlViewer (server-side mammoth; works for OOXML .doc, graceful error for binary BIFF)
-// "xlsx"     → XlsxViewer  (SheetJS — .xlsx and binary .xls)
+// "docx"     → DocxViewer    (docx-preview client-side, OOXML)
+// "doc"      → DocFallback   (binary BIFF .doc — no JS renderer; download with clear message)
+// "xlsx"     → XlsxViewer   (SheetJS — .xlsx and binary .xls)
 // "pptx"     → PptxFallback (no browser renderer — download only)
 type OfficeKind = "docx" | "doc" | "xlsx" | "pptx" | null;
 
@@ -252,51 +252,12 @@ function PptxFallback({ file }: { file: FileItem }) {
   );
 }
 
-// DocHtmlViewer — server-side conversion via mammoth (/api/files/office-html).
-// Works reliably for .docx and for .doc files saved in OOXML format.
-// Binary BIFF .doc files will return a 422; the error state is displayed with
-// the always-visible Download button so the user can still retrieve the file.
-function DocHtmlViewer({ file }: { file: FileItem }) {
-  const [state, setState] = useState<"loading" | "done" | "error">("loading");
-  const [html, setHtml] = useState<string>("");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    setState("loading");
-    setErrorMsg(null);
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const res = await fetch(
-          `${BASE_URL}/api/files/office-html?path=${encodeURIComponent(file.path)}`,
-          { credentials: "include" }
-        );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
-        }
-        const text = await res.text();
-        if (!cancelled) { setHtml(text); setState("done"); }
-      } catch (e) {
-        if (!cancelled) {
-          setErrorMsg(e instanceof Error ? e.message : "Erro ao converter documento");
-          setState("error");
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [file.path]);
-
-  if (state === "loading") return <ViewerLoading />;
-  if (state === "error" && errorMsg) return <ViewerError message={errorMsg} />;
-
+function DocFallback({ file }: { file: FileItem }) {
   return (
-    <div
-      className="docx-viewer flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-4"
-      style={{ minHeight: "calc(100vh - 220px)" }}
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+    <DownloadFallback
+      file={file}
+      title="Formato Word legado (.doc)"
+      description="Arquivos .doc (formato binário legado) não podem ser renderizados no navegador. Converta para .docx ou baixe o arquivo para abrir no Word / LibreOffice."
     />
   );
 }
@@ -411,7 +372,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
-              {officeKind === "doc" && <DocHtmlViewer file={file} />}
+              {officeKind === "doc" && <DocFallback file={file} />}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
               {officeKind === "pptx" && <PptxFallback file={file} />}
 
