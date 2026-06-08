@@ -253,6 +253,16 @@ ok "Diretório criado: $STORAGE_PATH"
 # ── Instalar dependências ────────────────────────────────────
 step "Instalando dependências (pnpm install)..."
 
+# Limpar node_modules stale de tentativas anteriores.
+# pnpm v11 lê node_modules/.modules.yaml para verificar estado de build approvals
+# (runDepsStatusCheck). Estado antigo (de instalação com pnpm.json incompleto) bloqueia
+# todos os `pnpm run`. O pnpm store global (~/.local/share/pnpm/store) preserva os
+# pacotes baixados, então reinstalar é rápido (só recria hard-links).
+if [ -d node_modules ]; then
+  echo "  Limpando node_modules antigo para garantir estado limpo..."
+  rm -rf node_modules
+fi
+
 # pnpm v11: pnpm.json sobrescreve pnpm-workspace.yaml para onlyBuiltDependencies.
 # Deve listar TODOS os pacotes com build scripts para evitar ERR_PNPM_IGNORED_BUILDS
 # tanto no pnpm install quanto no runDepsStatusCheck (chamado antes de pnpm run).
