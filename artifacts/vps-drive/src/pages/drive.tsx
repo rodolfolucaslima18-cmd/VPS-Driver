@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
-  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2
+  Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -95,6 +95,7 @@ export default function DrivePage() {
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
@@ -160,13 +161,57 @@ export default function DrivePage() {
       });
       invalidate();
       toast({ title: "Envio concluído", description: `${files.length} arquivo(s) enviado(s).` });
-    } catch {
-      toast({ title: "Falha no envio", description: "Não foi possível enviar os arquivos.", variant: "destructive" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
     } finally {
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, [currentPath, uploadMutation, invalidate, toast]);
+
+  const doUploadWithPaths = useCallback(async (entries: Array<{file: File; relativePath: string}>) => {
+    if (entries.length === 0) return;
+    const total = entries.length;
+    const BATCH = 20;
+    try {
+      for (let i = 0; i < entries.length; i += BATCH) {
+        const batch = entries.slice(i, i + BATCH);
+        const sent = Math.min(i + BATCH, total);
+        setUploadProgress(`Enviando ${sent} de ${total} arquivo${total > 1 ? "s" : ""}…`);
+        const formData = new FormData();
+        if (currentPath) formData.append("path", currentPath);
+        batch.forEach(({ file }) => formData.append("files", file));
+        formData.append("relativePaths", JSON.stringify(batch.map((e) => e.relativePath)));
+        const resp = await fetch(`${BASE_URL}/api/files/upload`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error((data as {error?: string}).error ?? `HTTP ${resp.status}`);
+        }
+      }
+      invalidate();
+      toast({ title: "Envio concluído", description: `${total} arquivo(s) enviado(s).` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
+    } finally {
+      setUploadProgress(null);
+      if (folderInputRef.current) folderInputRef.current.value = "";
+    }
+  }, [currentPath, invalidate, toast]);
+
+  const doUploadFolder = useCallback(async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const entries = Array.from(fileList).map((file) => ({
+      file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    }));
+    await doUploadWithPaths(entries);
+  }, [doUploadWithPaths]);
 
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -217,7 +262,66 @@ export default function DrivePage() {
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const onDragLeave = (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
-  const onDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); doUpload(e.dataTransfer.files); };
+
+  const onDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const items = Array.from(e.dataTransfer.items ?? []);
+    const hasFolder = items.some((item) => {
+      const entry = item.webkitGetAsEntry?.();
+      return entry?.isDirectory;
+    });
+
+    if (!hasFolder) {
+      doUpload(e.dataTransfer.files);
+      return;
+    }
+
+    // Traverse directory tree using FileSystem API
+    async function collectEntries(
+      entry: FileSystemEntry,
+      prefix = ""
+    ): Promise<Array<{file: File; relativePath: string}>> {
+      if (entry.isFile) {
+        return new Promise((resolve) => {
+          (entry as FileSystemFileEntry).file(
+            (f) => resolve([{ file: f, relativePath: prefix + entry.name }]),
+            () => resolve([])
+          );
+        });
+      }
+      if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const allEntries: FileSystemEntry[] = [];
+        await new Promise<void>((resolve) => {
+          function readBatch() {
+            reader.readEntries((batch) => {
+              if (batch.length === 0) { resolve(); return; }
+              allEntries.push(...batch);
+              readBatch();
+            }, () => resolve());
+          }
+          readBatch();
+        });
+        const nested = await Promise.all(
+          allEntries.map((child) => collectEntries(child, prefix + entry.name + "/"))
+        );
+        return nested.flat();
+      }
+      return [];
+    }
+
+    const allResults = await Promise.all(
+      items.map((item) => {
+        const entry = item.webkitGetAsEntry?.();
+        return entry ? collectEntries(entry) : Promise.resolve([]);
+      })
+    );
+    const entries = allResults.flat();
+    if (entries.length > 0) await doUploadWithPaths(entries);
+    else doUpload(e.dataTransfer.files);
+  }, [doUpload, doUploadWithPaths]);
 
   const breadcrumbs = currentPath.split("/").filter(Boolean);
 
@@ -232,13 +336,22 @@ export default function DrivePage() {
         />
       )}
 
-      {/* Hidden file input */}
+      {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
         className="hidden"
         onChange={(e) => doUpload(e.target.files)}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        // @ts-expect-error webkitdirectory is non-standard but widely supported
+        webkitdirectory="true"
+        multiple
+        className="hidden"
+        onChange={(e) => doUploadFolder(e.target.files)}
       />
 
       {/* Sidebar */}
@@ -333,9 +446,13 @@ export default function DrivePage() {
               <FolderPlus className="w-3.5 h-3.5" />
               Nova Pasta
             </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => folderInputRef.current?.click()}>
+              <FolderUp className="w-3.5 h-3.5" />
+              Pasta
+            </Button>
             <Button size="sm" className="h-8 gap-1.5" onClick={() => fileInputRef.current?.click()}>
               <Upload className="w-3.5 h-3.5" />
-              Enviar
+              Arquivos
             </Button>
           </div>
         </div>
@@ -483,10 +600,16 @@ export default function DrivePage() {
                 <p className="font-semibold text-foreground">Esta pasta está vazia</p>
                 <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="w-3.5 h-3.5 mr-1.5" />
-                Enviar arquivos
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
+                  <FolderUp className="w-3.5 h-3.5 mr-1.5" />
+                  Enviar pasta
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="w-3.5 h-3.5 mr-1.5" />
+                  Enviar arquivos
+                </Button>
+              </div>
             </div>
           )}
         </div>

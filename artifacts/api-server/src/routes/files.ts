@@ -173,13 +173,41 @@ router.post(
       return;
     }
 
+    // Optional relative paths for folder uploads (JSON array, one entry per file)
+    let relativePaths: string[] = [];
+    if (req.body.relativePaths) {
+      try {
+        const parsed = JSON.parse(req.body.relativePaths);
+        if (Array.isArray(parsed)) relativePaths = parsed;
+      } catch {
+        // ignore malformed value — treat as flat upload
+      }
+    }
+
     const uploaded = await Promise.all(
-      files.map(async (file) => {
-        // Security: strip any directory separators from the original filename
-        const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
-        // Re-validate final destination is still inside storage root
-        const destRelative = path.join(path.relative(STORAGE_ROOT, absDir), safeName);
-        const destPath = resolveStoragePath(destRelative);
+      files.map(async (file, i) => {
+        const relPath = relativePaths[i];
+        let destPath: string;
+
+        if (relPath && typeof relPath === "string") {
+          // Normalize path: forward slashes only, no leading slash
+          const normalized = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+          // Security: reject ".." segments
+          const segments = normalized.split("/");
+          if (segments.some((s) => s === ".." || s === ".")) {
+            // Fallback to safe basename
+            const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
+            destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
+          } else {
+            destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), normalized));
+            await fs.mkdir(path.dirname(destPath), { recursive: true });
+          }
+        } else {
+          // Plain upload: strip any directory separators from the original filename
+          const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
+          destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
+        }
+
         await fs.writeFile(destPath, file.buffer);
         const stats = await fs.stat(destPath);
         return buildFileItem(destPath, stats);
