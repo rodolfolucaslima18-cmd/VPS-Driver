@@ -21,7 +21,6 @@ import {
   CreateDirectoryBody,
   RenameItemBody,
 } from "@workspace/api-zod";
-
 // ── Periodic cleanup of expired tokens in DB ─────────────────
 setInterval(async () => {
   try {
