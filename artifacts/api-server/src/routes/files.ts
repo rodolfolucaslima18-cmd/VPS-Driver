@@ -500,8 +500,8 @@ router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
   res.json({ token, publicUrl, expiresAt: expiresAt.toISOString() });
 });
 
-// GET /files/public/:token — serve a tokenized file publicly (no auth required)
-router.get("/files/public/:token", async (req, res): Promise<void> => {
+// Shared handler for HEAD and GET /files/public/:token — no auth required
+async function servePublicToken(req: express.Request, res: express.Response, headOnly: boolean): Promise<void> {
   const { token } = req.params;
 
   let entry: { filePath: string; expiresAt: Date } | undefined;
@@ -519,7 +519,6 @@ router.get("/files/public/:token", async (req, res): Promise<void> => {
   }
 
   if (!entry || entry.expiresAt < new Date()) {
-    // Clean up expired row opportunistically (ignore errors)
     db.delete(fileTokensTable).where(eq(fileTokensTable.token, token ?? "")).catch(() => {});
     res.status(404).json({ error: "Token inválido ou expirado." });
     return;
@@ -539,12 +538,24 @@ router.get("/files/public/:token", async (req, res): Promise<void> => {
   res.setHeader("Content-Type", mimeType);
   res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
   res.setHeader("Content-Length", stats.size);
+  res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Cache-Control", "no-store");
+
+  if (headOnly) {
+    res.end();
+    return;
+  }
 
   const stream = createReadStream(absPath);
   stream.on("error", () => { if (!res.headersSent) res.status(500).json({ error: "Error reading file" }); });
   stream.pipe(res);
-});
+}
+
+// HEAD /files/public/:token — Office Online inspects the file with HEAD before rendering
+router.head("/files/public/:token", (req, res) => servePublicToken(req, res, true));
+
+// GET /files/public/:token — serve a tokenized file publicly (no auth required)
+router.get("/files/public/:token", (req, res) => servePublicToken(req, res, false));
 
 // GET /files/stats — storage statistics
 router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {

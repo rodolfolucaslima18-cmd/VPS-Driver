@@ -504,14 +504,14 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                         className="h-8 px-2.5 gap-1.5 text-xs"
                         onClick={() => openInService("google")}
                         disabled={tokenLoadingFor !== null}
-                        title="Google Docs"
+                        title="Visualização apenas — edições não são salvas no VPS Drive"
                       >
                         {tokenLoadingFor === "google" ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
                           <ExternalLink className="w-3 h-3" />
                         )}
-                        Google Docs
+                        Google Viewer
                       </Button>
                     </>
                   )}
