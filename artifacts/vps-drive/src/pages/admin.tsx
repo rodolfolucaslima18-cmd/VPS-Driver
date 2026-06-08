@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +15,9 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -61,6 +64,23 @@ function userInitials(u: AdminUser): string {
 
 type CreateUserForm = { name: string; email: string; password: string };
 
+type VersionInfo = {
+  version: string;
+  nodeVersion: string;
+  uptimeSeconds: number;
+  startedAt: string;
+};
+
+type UpdateStatus = "idle" | "updating" | "success" | "error";
+
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 export default function AdminPage() {
   const [, setLocation] = useLocation();
   const { user: currentUser } = useAuth();
@@ -72,11 +92,81 @@ export default function AdminPage() {
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateMessage, setUpdateMessage] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
     queryKey: ["admin", "users"],
     queryFn: () => apiFetch("/api/admin/users"),
     retry: false,
+  });
+
+  const { data: versionData } = useQuery<VersionInfo>({
+    queryKey: ["admin", "version"],
+    queryFn: () => apiFetch("/api/admin/version"),
+    retry: false,
+    refetchInterval: 60_000,
+  });
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
+  }, []);
+
+  const startRestartPolling = useCallback(
+    (preUpdateStartedAt: string) => {
+      stopPolling();
+      const POLL_INTERVAL = 4000;
+      const TIMEOUT = 5 * 60 * 1000;
+
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`${BASE_URL}/api/admin/version`, { credentials: "include" });
+          if (res.ok) {
+            const body = (await res.json()) as VersionInfo;
+            if (body.startedAt !== preUpdateStartedAt) {
+              stopPolling();
+              setUpdateStatus("success");
+              setUpdateMessage("Servidor atualizado e reiniciado com sucesso!");
+              queryClient.invalidateQueries({ queryKey: ["admin", "version"] });
+            }
+            // same startedAt → server still running old instance; keep waiting
+          }
+          // non-200 (server restarting) → keep polling
+        } catch {
+          // network error while server is down → keep polling
+        }
+      }, POLL_INTERVAL);
+
+      pollTimeoutRef.current = setTimeout(() => {
+        stopPolling();
+        setUpdateStatus("error");
+        setUpdateMessage(
+          "Tempo limite atingido. Verifique os logs do servidor (pm2 logs vps-drive-api).",
+        );
+      }, TIMEOUT);
+    },
+    [stopPolling, queryClient],
+  );
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  const updateMutation = useMutation({
+    mutationFn: () => apiFetch<{ ok: boolean; message: string }>("/api/admin/update", { method: "POST" }),
+    onSuccess: (res) => {
+      setUpdateStatus("updating");
+      setUpdateMessage(res.message);
+      // Capture the pre-update startedAt; fall back to a unique value so polling
+      // will always detect a restart even if versionData wasn't loaded yet.
+      const preUpdateStartedAt = versionData?.startedAt ?? "__unknown__";
+      startRestartPolling(preUpdateStartedAt);
+    },
+    onError: (err: Error) => {
+      setUpdateStatus("error");
+      setUpdateMessage(err.message);
+    },
   });
 
   const createMutation = useMutation({
@@ -308,6 +398,99 @@ export default function AdminPage() {
 
           {data && !isAccessDenied && (
             <>
+              {/* Version / Updates */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-primary" />
+                  Versão / Atualizações
+                </h2>
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Versão atual</p>
+                    <p className="text-sm font-mono font-medium">
+                      {versionData ? `v${versionData.version}` : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Node.js</p>
+                    <p className="text-sm font-mono font-medium">
+                      {versionData?.nodeVersion ?? "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Uptime</p>
+                    <p className="text-sm font-mono font-medium">
+                      {versionData ? formatUptime(versionData.uptimeSeconds) : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {updateStatus === "idle" && (
+                  <Button
+                    size="sm"
+                    className="h-9 px-4 gap-2"
+                    onClick={() => updateMutation.mutate()}
+                    disabled={updateMutation.isPending}
+                  >
+                    {updateMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    Atualizar agora
+                  </Button>
+                )}
+
+                {updateStatus === "updating" && (
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">Atualizando…</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{updateMessage}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Aguardando o servidor reiniciar. Isso pode levar 1–2 minutos.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {updateStatus === "success" && (
+                  <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-green-800">{updateMessage}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs shrink-0"
+                      onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); }}
+                    >
+                      OK
+                    </Button>
+                  </div>
+                )}
+
+                {updateStatus === "error" && (
+                  <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
+                    <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-destructive">Falha na atualização</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{updateMessage}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs shrink-0"
+                      onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); }}
+                    >
+                      Fechar
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {/* Create user form */}
               <div className="rounded-xl border border-border bg-card p-5">
                 <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">

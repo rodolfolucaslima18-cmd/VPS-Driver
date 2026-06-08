@@ -5,6 +5,9 @@ import { eq, asc } from "drizzle-orm";
 import { requireMaster } from "../middlewares/requireAuth";
 import { hashPassword } from "../lib/auth";
 import { randomUUID } from "crypto";
+import { spawn } from "child_process";
+import { existsSync, readFileSync } from "fs";
+import path from "path";
 
 const router: IRouter = Router();
 
@@ -212,5 +215,64 @@ router.patch(
     }
   },
 );
+
+// Stable start-time token: computed once when this module loads, changes on every restart.
+const SERVER_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
+
+// GET /admin/version — versão atual do app
+router.get("/admin/version", requireMaster, (_req, res): void => {
+  try {
+    const installDir = process.env.VPS_DRIVE_DIR ?? path.resolve(process.cwd());
+    let version = "0.0.0";
+    const pkgPath = path.join(installDir, "package.json");
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
+      version = pkg.version ?? "0.0.0";
+    }
+    res.json({
+      version,
+      nodeVersion: process.version,
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: SERVER_STARTED_AT,
+    });
+  } catch {
+    res.json({
+      version: "0.0.0",
+      nodeVersion: process.version,
+      uptimeSeconds: 0,
+      startedAt: SERVER_STARTED_AT,
+    });
+  }
+});
+
+// POST /admin/update — inicia atualização do app via update.sh
+router.post("/admin/update", requireMaster, (req, res): void => {
+  try {
+    const installDir = process.env.VPS_DRIVE_DIR ?? path.resolve(process.cwd());
+    const scriptPath = path.join(installDir, "scripts", "update.sh");
+
+    if (!existsSync(scriptPath)) {
+      res.status(400).json({ error: "Script de atualização não encontrado em " + scriptPath });
+      return;
+    }
+
+    const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https";
+    const host = req.headers.host ?? "localhost";
+    const installerBaseUrl = `${proto}://${host}`;
+
+    const child = spawn("bash", [scriptPath], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, INSTALLER_BASE_URL: installerBaseUrl },
+      cwd: installDir,
+    });
+    child.unref();
+
+    res.json({ ok: true, message: "Atualização iniciada. O servidor será reiniciado em instantes." });
+  } catch (err) {
+    console.error("Erro ao iniciar atualização:", err);
+    res.status(500).json({ error: "Erro ao iniciar atualização." });
+  }
+});
 
 export default router;
