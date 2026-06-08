@@ -82,20 +82,26 @@ async function fetchFileBuffer(path: string): Promise<ArrayBuffer> {
 
 function DocxViewer({ file }: { file: FileItem }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<"loading" | "done" | "error">("loading");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    setState("loading");
+    setErrorMsg(null);
     let cancelled = false;
 
-    (async () => {
+    // We must wait for the ref to be attached before calling renderAsync.
+    // Schedule the async work with a microtask so the DOM element from the
+    // render below is committed first.
+    const run = async () => {
       try {
         const buf = await fetchFileBuffer(file.path);
         if (cancelled) return;
         const { renderAsync } = await import("docx-preview");
-        if (cancelled || !containerRef.current) return;
+        if (cancelled) return;
+        // By the time the await above resolves, the component has already
+        // committed its initial render, so containerRef.current is non-null.
+        if (!containerRef.current) throw new Error("Container não montado.");
         containerRef.current.innerHTML = "";
         await renderAsync(buf, containerRef.current, undefined, {
           className: "docx-viewer",
@@ -106,25 +112,34 @@ function DocxViewer({ file }: { file: FileItem }) {
           breakPages: true,
           useBase64URL: true,
         });
+        if (!cancelled) setState("done");
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Erro ao renderizar documento");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setErrorMsg(e instanceof Error ? e.message : "Erro ao renderizar documento");
+          setState("error");
+        }
       }
-    })();
+    };
 
+    run();
     return () => { cancelled = true; };
   }, [file.path]);
 
-  if (loading) return <ViewerLoading />;
-  if (error) return <ViewerError message={error} />;
-
   return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-2"
-      style={{ minHeight: "calc(100vh - 220px)" }}
-    />
+    <div className="relative flex-1 flex flex-col" style={{ minHeight: "calc(100vh - 220px)" }}>
+      {/* Container always mounted so containerRef is non-null when renderAsync runs */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-2"
+        style={{ display: state === "error" ? "none" : "block", minHeight: "calc(100vh - 220px)" }}
+      />
+      {state === "loading" && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/70 rounded-lg">
+          <ViewerLoading />
+        </div>
+      )}
+      {state === "error" && errorMsg && <ViewerError message={errorMsg} />}
+    </div>
   );
 }
 
