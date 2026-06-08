@@ -26,6 +26,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -100,7 +106,6 @@ export default function DrivePage() {
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState("");
-  const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<{ path: string; name: string } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
@@ -150,14 +155,6 @@ export default function DrivePage() {
       setTimeout(() => newFolderInputRef.current?.focus(), 50);
     }
   }, [newFolderMode]);
-
-  // Close menus on outside click
-  useEffect(() => {
-    if (!openMenuPath) return;
-    const handler = () => setOpenMenuPath(null);
-    window.addEventListener("click", handler, { capture: true });
-    return () => window.removeEventListener("click", handler, { capture: true });
-  }, [openMenuPath]);
 
   const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -545,57 +542,46 @@ export default function DrivePage() {
                     else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                   }}
                 >
-                  {/* Action menu button */}
-                  <button
-                    data-nomenu
-                    className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
-                    onClick={(e) => { e.stopPropagation(); setOpenMenuPath(openMenuPath === file.path ? null : file.path); }}
-                  >
-                    <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
-
-                  {/* Dropdown menu */}
-                  {openMenuPath === file.path && (
-                    <div
-                      data-nomenu
-                      className="absolute top-8 right-1.5 z-20 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                  {/* Action menu */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        data-nomenu
+                        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[140px]">
                       {file.type === "file" && (
-                        <button
-                          data-nomenu
-                          className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent transition-colors"
-                          onClick={() => {
-                            setOpenMenuPath(null);
-                            setShareItem(file as FileItem);
-                          }}
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onClick={() => setShareItem(file as FileItem)}
                         >
                           <Share2 className="w-3.5 h-3.5" />
                           Compartilhar
-                        </button>
+                        </DropdownMenuItem>
                       )}
-                      <button
-                        data-nomenu
-                        className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+                      <DropdownMenuItem
+                        className="gap-2"
                         onClick={() => {
-                          setOpenMenuPath(null);
                           setRenamingPath(file.path);
                           setRenamingValue(file.name);
                         }}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                         Renomear
-                      </button>
-                      <button
-                        data-nomenu
-                        className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-accent transition-colors"
-                        onClick={() => { setOpenMenuPath(null); doDelete(file.path, file.name); }}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="gap-2 text-destructive focus:text-destructive"
+                        onClick={() => doDelete(file.path, file.name)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Excluir
-                      </button>
-                    </div>
-                  )}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Icon */}
                   {file.type === "directory" ? (
