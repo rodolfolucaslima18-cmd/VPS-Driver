@@ -254,25 +254,28 @@ ok "Diretório criado: $STORAGE_PATH"
 step "Instalando dependências (pnpm install)..."
 
 # Aprovar build scripts do esbuild para pnpm v10/v11
-# (pnpm v11 ignorou o campo "pnpm" em package.json — usamos múltiplas abordagens)
+# pnpm.json (lido pelo pnpm v10.1+/v11) e .npmrc (compatibilidade extra)
 echo '{"onlyBuiltDependencies":["esbuild"]}' > pnpm.json
-# .npmrc: sintaxe de array suportada por versões mais recentes do pnpm
-if ! grep -q "onlyBuiltDependencies" .npmrc 2>/dev/null; then
-  echo "onlyBuiltDependencies[]=esbuild" >> .npmrc
-fi
+grep -q "onlyBuiltDependencies" .npmrc 2>/dev/null \
+  || echo "onlyBuiltDependencies[]=esbuild" >> .npmrc
 
-_pnpm_install() {
-  local out ec
-  out=$(pnpm install --frozen-lockfile 2>&1) || out=$(pnpm install 2>&1)
-  ec=$?
-  echo "$out" | grep -v "ERR_PNPM_IGNORED_BUILDS\|Run \"pnpm approve-builds\"" | tail -6
-  # Tratar ERR_PNPM_IGNORED_BUILDS como aviso — pacotes estão instalados de qualquer forma
-  if [ $ec -ne 0 ] && ! echo "$out" | grep -q "ERR_PNPM_IGNORED_BUILDS"; then
-    return $ec
-  fi
-  return 0
-}
-_pnpm_install
+# Desativa set -e temporariamente para capturar saída e código de saída do pnpm
+set +e
+_pnpm_out=$(pnpm install --frozen-lockfile 2>&1); _pnpm_ec=$?
+if [ $_pnpm_ec -ne 0 ]; then
+  _pnpm_out=$(pnpm install 2>&1); _pnpm_ec=$?
+fi
+set -e
+
+# Mostrar saída filtrando mensagens de IGNORED_BUILDS (são avisos, não erros fatais)
+echo "$_pnpm_out" \
+  | grep -v "ERR_PNPM_IGNORED_BUILDS\|Run \"pnpm approve-builds\"" \
+  | tail -6 || true
+
+# ERR_PNPM_IGNORED_BUILDS: pacotes estão instalados — esbuild usa optional deps, não postinstall
+if [ $_pnpm_ec -ne 0 ] && ! echo "$_pnpm_out" | grep -q "ERR_PNPM_IGNORED_BUILDS"; then
+  error "pnpm install falhou (código $_pnpm_ec). Verifique a saída acima."
+fi
 ok "Dependências instaladas"
 
 step "Aplicando schema do banco de dados..."
