@@ -138,10 +138,21 @@ fi
 # ── pnpm ────────────────────────────────────────────────────
 step "Verificando pnpm..."
 if command -v pnpm &>/dev/null; then
-  ok "pnpm $(pnpm --version) já está instalado"
+  PNPM_MAJOR=$(pnpm --version 2>/dev/null | cut -d. -f1)
+  if [ "${PNPM_MAJOR:-0}" -ge 11 ]; then
+    echo "  pnpm v$(pnpm --version) detectado."
+    echo "  pnpm v11+ bloqueia build scripts por padrão (runDepsStatusCheck)."
+    echo "  Instalando pnpm v10 para compatibilidade..."
+    npm install -g pnpm@10 --quiet 2>&1 | tail -2
+    hash -r
+    ok "pnpm $(pnpm --version) instalado (v10 — compatível com este instalador)"
+    echo "  → Para voltar ao pnpm v11 após a instalação: npm install -g pnpm@latest"
+  else
+    ok "pnpm $(pnpm --version) já está instalado"
+  fi
 else
-  npm install -g pnpm --quiet
-  ok "pnpm instalado"
+  npm install -g pnpm@10 --quiet
+  ok "pnpm $(pnpm --version) instalado"
 fi
 
 # ── PM2 ─────────────────────────────────────────────────────
