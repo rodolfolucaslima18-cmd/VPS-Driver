@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Download, File, AlertCircle } from "lucide-react";
+import DOMPurify from "dompurify";
 import {
   Sheet,
   SheetContent,
@@ -204,7 +205,7 @@ function XlsxViewer({ file }: { file: FileItem }) {
       <div
         className="xlsx-container flex-1 overflow-auto rounded-lg border border-border bg-white text-black text-xs"
         style={{ minHeight: "calc(100vh - 260px)" }}
-        dangerouslySetInnerHTML={{ __html: htmls[activeSheet] ?? "" }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmls[activeSheet] ?? "") }}
       />
     </div>
   );
@@ -261,7 +262,7 @@ function DocHtmlViewer({ file }: { file: FileItem }) {
     (async () => {
       try {
         const res = await fetch(
-          `${BASE_URL}api/files/office-html?path=${encodeURIComponent(file.path)}`,
+          `${BASE_URL}/api/files/office-html?path=${encodeURIComponent(file.path)}`,
           { credentials: "include" }
         );
         if (!res.ok) {
@@ -288,7 +289,7 @@ function DocHtmlViewer({ file }: { file: FileItem }) {
     <div
       className="docx-viewer flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-4"
       style={{ minHeight: "calc(100vh - 220px)" }}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
     />
   );
 }
