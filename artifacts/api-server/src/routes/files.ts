@@ -325,12 +325,12 @@ router.get("/files/office-html", requireAuth, async (req, res): Promise<void> =>
 
   if (!existsSync(absPath)) { res.status(404).json({ error: "File not found" }); return; }
 
-  // Only OOXML (.docx) is supported — mammoth cannot reliably handle binary .doc
-  const allowedExts = [".docx"];
+  // Supported: .docx (OOXML, reliable) and .doc (attempted; may fail for binary BIFF)
+  const allowedExts = [".docx", ".doc"];
   const fileExt = path.extname(rawPath).toLowerCase();
   if (!allowedExts.includes(fileExt)) {
     res.status(415).json({
-      error: `Formato não suportado (${fileExt}). Apenas .docx pode ser convertido para HTML.`,
+      error: `Formato não suportado (${fileExt}). Apenas .docx e .doc são aceitos.`,
     });
     return;
   }
