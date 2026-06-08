@@ -1,0 +1,119 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 01:20:27 PM -03 2026
+
+  System load:  0.0                Processes:             142
+  Usage of /:   17.5% of 97.27GB   Users logged in:       0
+  Memory usage: 28%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 13:06:40 2026 from 129.121.52.84
+root@vps-15458837:~# cd /opt/vps-drive && \
+curl -sL https://central-share-hub.replit.app/api/download/project.tar.gz | \
+  tar -xzf - --exclude='.env' --exclude='node_modules' \
+             --exclude='artifacts/api-server/dist' \
+             --exclude='artifacts/vps-drive/dist' && \
+pnpm install && \
+pnpm --filter @workspace/vps-drive run build && \
+pnpm --filter @workspace/api-server run build && \
+pm2 restart vps-drive-api --update-env && \
+echo "✅ Pronto!"
+Scope: all 9 workspace projects
+Lockfile is up to date, resolution step is skipped
+Packages: +37 -3
++++++++++++++++++++++++++++++++++++++---
+Progress: resolved 37, reused 0, downloaded 37, added 37, done
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm…
+└─ Done in 9ms
+Done in 1.7s using pnpm v10.34.1
+
+> @workspace/vps-drive@0.0.0 build /opt/vps-drive/artifacts/vps-drive
+> vite build --config vite.config.ts
+
+failed to load config from /opt/vps-drive/artifacts/vps-drive/vite.config.ts
+error during build:
+Error: PORT environment variable is required but was not provided.
+    at file:///opt/vps-drive/artifacts/vps-drive/node_modules/.vite-temp/vite.config.ts.timestamp-1780935639573-8fc82c77db2cb.mjs:10:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async loadConfigFromBundledFile (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/chunks/config.js:35936:12)
+    at async bundleAndLoadConfigFile (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/chunks/config.js:35824:17)
+    at async loadConfigFromFile (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/chunks/config.js:35791:42)
+    at async resolveConfig (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/chunks/config.js:35440:22)
+    at async createBuilder (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/chunks/config.js:33895:19)
+    at async CAC.<anonymous> (file:///opt/vps-drive/node_modules/.pnpm/vite@7.3.3_@types+node@25.6.2_jiti@2.7.0_lightningcss@1.32.0_tsx@4.21.0_yaml@2.8.4/node_modules/vite/dist/node/cli.js:629:10)
+/opt/vps-drive/artifacts/vps-drive:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/vps-drive@0.0.0 build: `vite build --config vite.config.ts`
+Exit status 1
+root@vps-15458837:/opt/vps-drive# BASE_PATH=/ PORT=3000 NODE_ENV=production pnpm --filter @workspace/vps-drive run build && \
+pnpm --filter @workspace/api-server run build && \
+pm2 restart vps-drive-api --update-env && \
+echo "✅ Pronto!"
+
+> @workspace/vps-drive@0.0.0 build /opt/vps-drive/artifacts/vps-drive
+> vite build --config vite.config.ts
+
+vite v7.3.3 building client environment for production...
+src/components/ui/tooltip.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/label.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/sheet.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+✓ 1835 modules transformed.
+dist/public/index.html                         1.37 kB │ gzip:   0.54 kB
+dist/public/assets/index-PJSyjRWC.css        106.61 kB │ gzip:  17.22 kB
+dist/public/assets/docx-preview-CecduWjX.js  172.23 kB │ gzip:  50.39 kB
+dist/public/assets/xlsx-CNerDvZX.js          429.19 kB │ gzip: 142.94 kB
+dist/public/assets/index-CTxKHvJd.js         450.57 kB │ gzip: 142.78 kB
+✓ built in 4.48s
+
+> @workspace/api-server@0.0.0 build /opt/vps-drive/artifacts/api-server
+> node ./build.mjs
+
+
+  dist/index.mjs                       3.4mb ⚠️
+  dist/pino-worker.mjs               153.4kb
+  dist/pino-file.mjs                 142.0kb
+  dist/pino-pretty.mjs               114.6kb
+  dist/thread-stream-worker.mjs        7.3kb
+  dist/index.mjs.map                   5.9mb
+  dist/pino-worker.mjs.map           256.9kb
+  dist/pino-file.mjs.map             229.0kb
+  dist/pino-pretty.mjs.map           204.0kb
+  dist/thread-stream-worker.mjs.map   12.0kb
+
+⚡ Done in 334ms
+[PM2] Applying action restartProcessId on app [vps-drive-api](ids: [ 0 ])
+[PM2] [vps-drive-api](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api      │ fork     │ 1    │ online    │ 0%       │ 21.0mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+✅ Pronto!
+root@vps-15458837:/opt/vps-drive#
