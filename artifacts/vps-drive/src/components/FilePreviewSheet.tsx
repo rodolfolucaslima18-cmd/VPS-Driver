@@ -41,19 +41,23 @@ function getExt(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-type OfficeKind = "docx" | "doc" | "xlsx" | "pptx" | null;
+// "docx"       → DocxViewer (docx-preview client-side, OOXML only)
+// "doc-legacy" → DocLegacyFallback (binary BIFF .doc — no browser renderer available)
+// "xlsx"       → XlsxViewer (SheetJS, supports both .xlsx and binary .xls)
+// "pptx"       → PptxFallback (download-only, no browser renderer)
+type OfficeKind = "docx" | "doc-legacy" | "xlsx" | "pptx" | null;
 
 function getOfficeKind(file: FileItem): OfficeKind {
   const ext = getExt(file.name);
   if (ext === ".docx") return "docx";
-  if (ext === ".doc") return "doc";   // server-side mammoth conversion
+  if (ext === ".doc") return "doc-legacy"; // binary BIFF — no reliable client/server renderer
   if (ext === ".xlsx" || ext === ".xls") return "xlsx";
   if (ext === ".pptx" || ext === ".ppt") return "pptx";
   const mime = file.mimeType ?? "";
   if (mime.includes("wordprocessingml")) return "docx";
   if (mime.includes("spreadsheetml")) return "xlsx";
   if (mime.includes("presentationml")) return "pptx";
-  if (mime.includes("msword")) return "doc";
+  if (mime.includes("msword")) return "doc-legacy";
   if (mime.includes("ms-excel")) return "xlsx";
   if (mime.includes("ms-powerpoint")) return "pptx";
   return null;
@@ -248,48 +252,12 @@ function PptxFallback({ file }: { file: FileItem }) {
   );
 }
 
-// DocHtmlViewer — converts .doc/.docx server-side via mammoth and renders HTML inline
-function DocHtmlViewer({ file }: { file: FileItem }) {
-  const [state, setState] = useState<"loading" | "done" | "error">("loading");
-  const [html, setHtml] = useState<string>("");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    setState("loading");
-    setErrorMsg(null);
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const res = await fetch(
-          `${BASE_URL}/api/files/office-html?path=${encodeURIComponent(file.path)}`,
-          { credentials: "include" }
-        );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
-        }
-        const text = await res.text();
-        if (!cancelled) { setHtml(text); setState("done"); }
-      } catch (e) {
-        if (!cancelled) {
-          setErrorMsg(e instanceof Error ? e.message : "Erro ao converter documento");
-          setState("error");
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [file.path]);
-
-  if (state === "loading") return <ViewerLoading />;
-  if (state === "error" && errorMsg) return <ViewerError message={errorMsg} />;
-
+function DocLegacyFallback({ file }: { file: FileItem }) {
   return (
-    <div
-      className="docx-viewer flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-4"
-      style={{ minHeight: "calc(100vh - 220px)" }}
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+    <DownloadFallback
+      file={file}
+      title="Formato Word legado (.doc)"
+      description="Arquivos .doc (formato binário legado) não podem ser renderizados no navegador. Converta para .docx ou baixe o arquivo para abrir no Word / LibreOffice."
     />
   );
 }
@@ -404,7 +372,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
-              {officeKind === "doc" && <DocHtmlViewer file={file} />}
+              {officeKind === "doc-legacy" && <DocLegacyFallback file={file} />}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
               {officeKind === "pptx" && <PptxFallback file={file} />}
 
