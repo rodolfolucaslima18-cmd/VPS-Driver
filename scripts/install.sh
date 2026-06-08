@@ -490,7 +490,17 @@ SETUP_BODY=$(echo "$SETUP_RESP" | head -1)
 if [[ "$SETUP_CODE" == "201" ]]; then
   ok "Usuário administrador criado: $ADMIN_EMAIL"
 elif [[ "$SETUP_CODE" == "403" ]]; then
-  ok "Usuário administrador já existia (setup já concluído)"
+  echo "  Instalação anterior detectada — atualizando credenciais do administrador..."
+  PASS_HASH=$(node -e "
+const b = require('bcryptjs');
+b.hash(process.argv[1], 10).then(h => process.stdout.write(h)).catch(() => process.exit(1));
+" "$ADMIN_PASSWORD" 2>/dev/null)
+  if [[ -z "$PASS_HASH" ]]; then
+    error "Falha ao gerar hash da senha. Certifique-se de que bcryptjs está instalado."
+  fi
+  ADMIN_EMAIL_LOWER=$(echo "$ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')
+  psql "$DATABASE_URL" -c "UPDATE users SET name='$ADMIN_NAME', email='$ADMIN_EMAIL_LOWER', password_hash='$PASS_HASH', is_active=true WHERE role='master';" >/dev/null 2>&1
+  ok "Credenciais do administrador atualizadas: $ADMIN_EMAIL"
 else
   error "Falha ao criar usuário administrador (HTTP $SETUP_CODE): $SETUP_BODY"
 fi
