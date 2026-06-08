@@ -1,0 +1,77 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 01:06:17 PM -03 2026
+
+  System load:  0.0                Processes:             142
+  Usage of /:   17.5% of 97.27GB   Users logged in:       0
+  Memory usage: 28%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 10:02:27 2026 from 187.65.182.2
+root@vps-15458837:~# ssh -p 22022 root@129.121.52.84
+pm2 logs vps-drive-api --lines 100 --nostream
+The authenticity of host '[129.121.52.84]:22022 ([129.121.52.84]:22022)' can't be established.
+ED25519 key fingerprint is SHA256:78EtfzQiFlb/SlGgkpkr7jWBrIcLl0E6mXqhF8cEI00.
+This key is not known by any other names
+Are you sure you want to continue connecting (yes/no/[fingerprint])? y
+Please type 'yes', 'no' or the fingerprint: yes
+Warning: Permanently added '[129.121.52.84]:22022' (ED25519) to the list of known hosts.
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 01:06:17 PM -03 2026
+
+  System load:  0.0                Processes:             142
+  Usage of /:   17.5% of 97.27GB   Users logged in:       0
+  Memory usage: 28%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 13:06:18 2026 from 187.65.182.2
+root@vps-15458837:~#

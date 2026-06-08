@@ -1,0 +1,170 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 01:06:17 PM -03 2026
+
+  System load:  0.0                Processes:             142
+  Usage of /:   17.5% of 97.27GB   Users logged in:       0
+  Memory usage: 28%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 10:02:27 2026 from 187.65.182.2
+root@vps-15458837:~# ssh -p 22022 root@129.121.52.84
+pm2 logs vps-drive-api --lines 100 --nostream
+The authenticity of host '[129.121.52.84]:22022 ([129.121.52.84]:22022)' can't be established.
+ED25519 key fingerprint is SHA256:78EtfzQiFlb/SlGgkpkr7jWBrIcLl0E6mXqhF8cEI00.
+This key is not known by any other names
+Are you sure you want to continue connecting (yes/no/[fingerprint])? y
+Please type 'yes', 'no' or the fingerprint: yes
+Warning: Permanently added '[129.121.52.84]:22022' (ED25519) to the list of known hosts.
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 01:06:17 PM -03 2026
+
+  System load:  0.0                Processes:             142
+  Usage of /:   17.5% of 97.27GB   Users logged in:       0
+  Memory usage: 28%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 13:06:18 2026 from 187.65.182.2
+root@vps-15458837:~#
+root@vps-15458837:~# pm2 logs vps-drive-api --lines 100 --nostream
+[TAILING] Tailing last 100 lines for [vps-drive-api] process (change the value with --lines option)
+/root/.pm2/logs/vps-drive-api-error.log last 100 lines:
+/root/.pm2/logs/vps-drive-api-out.log last 100 lines:
+0|vps-driv | 04},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927754998,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":536,"method":"GET","url":"/chat/api/messages"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755096,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":537,"method":"GET","url":"/api/v1/cdss"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755199,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":538,"method":"GET","url":"/state/v1"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755296,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":539,"method":"GET","url":"/ApplicationStatus"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755396,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":540,"method":"GET","url":"/search/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755496,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":541,"method":"GET","url":"/api/v1/viewer"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755595,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":542,"method":"GET","url":"/api/v1/system"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755695,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":543,"method":"GET","url":"/v1/.well-known/ready"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755796,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":544,"method":"GET","url":"/v1/.well-known/live"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755898,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":545,"method":"GET","url":"/inference"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927755996,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":546,"method":"GET","url":"/ui/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927756096,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":547,"method":"GET","url":"/v1/model_registrations/LLM"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927756196,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":548,"method":"GET","url":"/studio_speakers"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780927781833,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":549,"method":"GET","url":"/v2/"},"res":{"statusCode":404},"responseTime":2,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780928451038,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":550,"method":"GET","url":"/"},"res":{"statusCode":404},"responseTime":2,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780928463432,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":551,"method":"GET","url":"/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780928468977,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":552,"method":"GET","url":"/security.txt"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934059217,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":553,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":14,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934059223,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":554,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":11,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934061888,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":555,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934061967,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":556,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934061981,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":557,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934067868,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":558,"method":"POST","url":"/api/admin/update"},"res":{"statusCode":200},"responseTime":15,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934071913,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":559,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934075905,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":560,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934079911,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":561,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934083915,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":562,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934087913,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":563,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934091918,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":564,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934096105,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":565,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934100120,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":566,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934104111,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":567,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934108107,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":568,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934112106,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":569,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934116111,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":570,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934120102,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":571,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934124120,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":572,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934128121,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":573,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934132127,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":574,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934136096,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":575,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934140092,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":576,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934144105,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":577,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934148113,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":578,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934152116,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":579,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934169060,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":580,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":15,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934169082,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":581,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934169122,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":582,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934171906,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":583,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934176103,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":584,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934180110,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":585,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934184125,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":586,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934188108,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":587,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934191890,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":588,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":8,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934191894,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":589,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934191926,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":590,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":304},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934196108,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":591,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934200138,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":592,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934204165,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":593,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934208109,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":594,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934212114,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":595,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934216114,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":596,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934220113,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":597,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934224106,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":598,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934228120,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":599,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934232113,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":600,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934236110,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":601,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934240135,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":602,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934244120,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":603,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934248113,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":604,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934252110,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":605,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934274116,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":606,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934334119,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":607,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934388490,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":608,"method":"GET","url":"/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934486845,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":609,"method":"GET","url":"/"},"res":{"statusCode":404},"responseTime":1,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934545564,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":610,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934545567,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":611,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":15,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934596766,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":612,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":10,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934596767,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":613,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934599707,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":614,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934599777,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":615,"method":"GET","url":"/api/admin/version"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934599778,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":616,"method":"GET","url":"/api/admin/users"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934605565,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":617,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934605566,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":618,"method":"GET","url":"/api/files/stats"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934610803,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":619,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934610848,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":620,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780934610849,"pid":29756,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":621,"method":"GET","url":"/api/files/stats"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+
+root@vps-15458837:~#
