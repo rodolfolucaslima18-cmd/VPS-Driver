@@ -253,11 +253,18 @@ ok "Diretório criado: $STORAGE_PATH"
 # ── Instalar dependências ────────────────────────────────────
 step "Instalando dependências (pnpm install)..."
 
-# Aprovar build scripts do esbuild para pnpm v10/v11
-# pnpm.json (lido pelo pnpm v10.1+/v11) e .npmrc (compatibilidade extra)
-echo '{"onlyBuiltDependencies":["esbuild"]}' > pnpm.json
+# pnpm v11: pnpm.json sobrescreve pnpm-workspace.yaml para onlyBuiltDependencies.
+# Deve listar TODOS os pacotes com build scripts para evitar ERR_PNPM_IGNORED_BUILDS
+# tanto no pnpm install quanto no runDepsStatusCheck (chamado antes de pnpm run).
+printf '{"onlyBuiltDependencies":["@swc/core","esbuild","msw","unrs-resolver"]}\n' > pnpm.json
+# .npmrc: desabilita minimumReleaseAge (Replit-only) e garante onlyBuiltDependencies
+grep -q "minimum-release-age" .npmrc 2>/dev/null \
+  || echo "minimum-release-age=0" >> .npmrc
 grep -q "onlyBuiltDependencies" .npmrc 2>/dev/null \
-  || echo "onlyBuiltDependencies[]=esbuild" >> .npmrc
+  || { echo "onlyBuiltDependencies[]=@swc/core" >> .npmrc
+       echo "onlyBuiltDependencies[]=esbuild" >> .npmrc
+       echo "onlyBuiltDependencies[]=msw" >> .npmrc
+       echo "onlyBuiltDependencies[]=unrs-resolver" >> .npmrc; }
 
 # Desativa set -e temporariamente para capturar saída e código de saída do pnpm
 set +e

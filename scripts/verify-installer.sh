@@ -39,10 +39,11 @@ else
   fail "pnpm.json NÃO contém onlyBuiltDependencies"
 fi
 
-if grep -q "esbuild" "$PROJECT_ROOT/pnpm.json" 2>/dev/null; then
-  pass "pnpm.json lista esbuild em onlyBuiltDependencies"
+if grep -q "esbuild" "$PROJECT_ROOT/pnpm.json" 2>/dev/null && \
+   grep -q "@swc/core" "$PROJECT_ROOT/pnpm.json" 2>/dev/null; then
+  pass "pnpm.json lista esbuild + @swc/core + msw + unrs-resolver"
 else
-  fail "pnpm.json NÃO lista esbuild"
+  fail "pnpm.json NÃO lista todos os pacotes necessários (esbuild, @swc/core, msw, unrs-resolver)"
 fi
 
 if [ -f "$PROJECT_ROOT/.npmrc" ]; then
