@@ -311,6 +311,36 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+// GET /files/office-html — convert DOCX/DOC to HTML via mammoth (requires auth)
+router.get("/files/office-html", requireAuth, async (req, res): Promise<void> => {
+  const rawPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!rawPath) { res.status(400).json({ error: "Missing path" }); return; }
+
+  let absPath: string;
+  try {
+    absPath = resolveStoragePath(rawPath);
+  } catch {
+    res.status(400).json({ error: "Invalid path" }); return;
+  }
+
+  if (!existsSync(absPath)) { res.status(404).json({ error: "File not found" }); return; }
+
+  const stat = await fs.stat(absPath).catch(() => null);
+  if (!stat || stat.isDirectory()) { res.status(400).json({ error: "Not a file" }); return; }
+
+  try {
+    // Dynamic import keeps mammoth out of the main bundle for non-office requests
+    const mammoth = await import("mammoth");
+    const result = await mammoth.convertToHtml({ path: absPath });
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Mammoth-Warnings", String(result.messages.length));
+    res.send(result.value || "<p>(documento sem conteúdo de texto)</p>");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Conversion failed";
+    res.status(422).json({ error: `Não foi possível converter o documento: ${msg}` });
+  }
+});
+
 // GET /files/preview — serve file inline for browser preview
 router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
   const rawPath = typeof req.query.path === "string" ? req.query.path : "";
