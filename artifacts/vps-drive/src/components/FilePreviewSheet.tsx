@@ -40,17 +40,24 @@ function getExt(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-type OfficeKind = "docx" | "xlsx" | "pptx" | null;
+// "doc-legacy" = binary .doc/.ppt — cannot be rendered client-side
+type OfficeKind = "docx" | "doc-legacy" | "xlsx" | "pptx" | null;
 
 function getOfficeKind(file: FileItem): OfficeKind {
   const ext = getExt(file.name);
-  if (ext === ".docx" || ext === ".doc") return "docx";
+  if (ext === ".docx") return "docx";
+  if (ext === ".doc") return "doc-legacy";
   if (ext === ".xlsx" || ext === ".xls") return "xlsx";
   if (ext === ".pptx" || ext === ".ppt") return "pptx";
   const mime = file.mimeType ?? "";
-  if (mime.includes("wordprocessingml") || mime.includes("msword")) return "docx";
-  if (mime.includes("spreadsheetml") || mime.includes("ms-excel")) return "xlsx";
-  if (mime.includes("presentationml") || mime.includes("ms-powerpoint")) return "pptx";
+  // OOXML MIME types — safe to render
+  if (mime.includes("wordprocessingml")) return "docx";
+  if (mime.includes("spreadsheetml")) return "xlsx";
+  if (mime.includes("presentationml")) return "pptx";
+  // Legacy binary MS Office MIMEs — download only
+  if (mime.includes("msword")) return "doc-legacy";
+  if (mime.includes("ms-excel")) return "xlsx"; // SheetJS handles binary XLS
+  if (mime.includes("ms-powerpoint")) return "pptx";
   return null;
 }
 
@@ -191,9 +198,9 @@ function XlsxViewer({ file }: { file: FileItem }) {
   );
 }
 
-// ── PPTX Fallback ─────────────────────────────────────────────────────────────
+// ── Download-only fallback (shared by PPTX and legacy .doc) ──────────────────
 
-function PptxFallback({ file }: { file: FileItem }) {
+function DownloadFallback({ file, title, description }: { file: FileItem; title: string; description: string }) {
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-5 text-muted-foreground py-8">
@@ -204,12 +211,9 @@ function PptxFallback({ file }: { file: FileItem }) {
         <p className="font-medium text-foreground">{file.name}</p>
         <p className="text-sm">{formatSize(file.size)} · {formatDate(file.modifiedAt)}</p>
       </div>
-      <div className="text-center space-y-1 text-sm max-w-[260px]">
-        <p className="font-medium text-foreground">Apresentações PowerPoint</p>
-        <p className="text-muted-foreground leading-relaxed">
-          Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador.
-          Baixe o arquivo para abrir no PowerPoint ou LibreOffice.
-        </p>
+      <div className="text-center space-y-1 text-sm max-w-[280px]">
+        <p className="font-medium text-foreground">{title}</p>
+        <p className="text-muted-foreground leading-relaxed">{description}</p>
       </div>
       <Button variant="default" asChild>
         <a href={downloadUrl} download={file.name}>
@@ -218,6 +222,26 @@ function PptxFallback({ file }: { file: FileItem }) {
         </a>
       </Button>
     </div>
+  );
+}
+
+function PptxFallback({ file }: { file: FileItem }) {
+  return (
+    <DownloadFallback
+      file={file}
+      title="Apresentações PowerPoint"
+      description="Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador. Baixe o arquivo para abrir no PowerPoint ou LibreOffice."
+    />
+  );
+}
+
+function DocLegacyFallback({ file }: { file: FileItem }) {
+  return (
+    <DownloadFallback
+      file={file}
+      title="Formato Word legado (.doc)"
+      description="Arquivos .doc (formato binário legado) não podem ser renderizados no navegador. Converta para .docx ou baixe o arquivo para abrir no Word / LibreOffice."
+    />
   );
 }
 
@@ -331,6 +355,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
+              {officeKind === "doc-legacy" && <DocLegacyFallback file={file} />}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
               {officeKind === "pptx" && <PptxFallback file={file} />}
 
