@@ -4,6 +4,8 @@ import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
+import { eq, lt } from "drizzle-orm";
+import { db, fileTokensTable } from "@workspace/db";
 import {
   STORAGE_ROOT,
   ensureStorageRoot,
@@ -20,15 +22,12 @@ import {
   RenameItemBody,
 } from "@workspace/api-zod";
 
-// ── Temporary public-access token store ─────────────────────
-interface TokenEntry { filePath: string; expiresAt: number }
-const tokenStore = new Map<string, TokenEntry>();
-
-// Prune expired tokens every 10 minutes (unref so it doesn't block process exit)
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, entry] of tokenStore.entries()) {
-    if (entry.expiresAt < now) tokenStore.delete(token);
+// ── Periodic cleanup of expired tokens in DB ─────────────────
+setInterval(async () => {
+  try {
+    await db.delete(fileTokensTable).where(lt(fileTokensTable.expiresAt, new Date()));
+  } catch {
+    // Non-critical — expired rows will simply be ignored at lookup time
   }
 }, 10 * 60 * 1000).unref();
 
@@ -390,8 +389,15 @@ router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
 
   const token = randomUUID();
   const TTL_MS = 30 * 60 * 1000;
-  const expiresAt = Date.now() + TTL_MS;
-  tokenStore.set(token, { filePath: rawPath, expiresAt });
+  const expiresAt = new Date(Date.now() + TTL_MS);
+
+  try {
+    await db.insert(fileTokensTable).values({ token, filePath: rawPath, expiresAt });
+  } catch (err) {
+    console.error("Failed to persist file token:", err);
+    res.status(500).json({ error: "Não foi possível criar o token." });
+    return;
+  }
 
   // Prefer VPS_HOST from env (set during install) to avoid leaking internal/proxy hostnames.
   // COOKIE_SECURE=true iff HTTPS is enabled, so it doubles as the scheme signal.
@@ -402,16 +408,30 @@ router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
   const host = vpsHost ?? req.get("host");
   const publicUrl = `${proto}://${host}/api/files/public/${token}`;
 
-  res.json({ token, publicUrl, expiresAt: new Date(expiresAt).toISOString() });
+  res.json({ token, publicUrl, expiresAt: expiresAt.toISOString() });
 });
 
 // GET /files/public/:token — serve a tokenized file publicly (no auth required)
 router.get("/files/public/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
-  const entry = tokenStore.get(token ?? "");
 
-  if (!entry || entry.expiresAt < Date.now()) {
-    tokenStore.delete(token ?? "");
+  let entry: { filePath: string; expiresAt: Date } | undefined;
+  try {
+    const [row] = await db
+      .select({ filePath: fileTokensTable.filePath, expiresAt: fileTokensTable.expiresAt })
+      .from(fileTokensTable)
+      .where(eq(fileTokensTable.token, token ?? ""))
+      .limit(1);
+    entry = row;
+  } catch (err) {
+    console.error("Token lookup failed:", err);
+    res.status(500).json({ error: "Erro interno ao validar token." });
+    return;
+  }
+
+  if (!entry || entry.expiresAt < new Date()) {
+    // Clean up expired row opportunistically (ignore errors)
+    db.delete(fileTokensTable).where(eq(fileTokensTable.token, token ?? "")).catch(() => {});
     res.status(404).json({ error: "Token inválido ou expirado." });
     return;
   }
