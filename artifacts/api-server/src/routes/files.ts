@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import path from "path";
 import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
+import { randomUUID } from "crypto";
 import multer from "multer";
 import {
   STORAGE_ROOT,
@@ -18,6 +19,18 @@ import {
   CreateDirectoryBody,
   RenameItemBody,
 } from "@workspace/api-zod";
+
+// ── Temporary public-access token store ─────────────────────
+interface TokenEntry { filePath: string; expiresAt: number }
+const tokenStore = new Map<string, TokenEntry>();
+
+// Prune expired tokens every 10 minutes (unref so it doesn't block process exit)
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of tokenStore.entries()) {
+    if (entry.expiresAt < now) tokenStore.delete(token);
+  }
+}, 10 * 60 * 1000).unref();
 
 const router: IRouter = Router();
 
@@ -345,6 +358,64 @@ router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
       res.status(500).json({ error: "Error reading file" });
     }
   });
+  stream.pipe(res);
+});
+
+// GET /files/token — generate a 30-min public-access token for a file
+router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
+  const rawPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!rawPath) { res.status(400).json({ error: "Missing path" }); return; }
+
+  let absPath: string;
+  try { absPath = resolveStoragePath(rawPath); } catch { res.status(400).json({ error: "Invalid path" }); return; }
+
+  if (!existsSync(absPath)) { res.status(404).json({ error: "File not found" }); return; }
+
+  let stats: import("fs").Stats;
+  try { stats = await fs.stat(absPath); } catch { res.status(500).json({ error: "Cannot stat file" }); return; }
+  if (stats.isDirectory()) { res.status(400).json({ error: "Cannot tokenize a directory" }); return; }
+
+  const token = randomUUID();
+  const TTL_MS = 30 * 60 * 1000;
+  const expiresAt = Date.now() + TTL_MS;
+  tokenStore.set(token, { filePath: rawPath, expiresAt });
+
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
+  const host = req.get("host");
+  const publicUrl = `${proto}://${host}/api/files/public/${token}`;
+
+  res.json({ token, publicUrl, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+// GET /files/public/:token — serve a tokenized file publicly (no auth required)
+router.get("/files/public/:token", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  const entry = tokenStore.get(token ?? "");
+
+  if (!entry || entry.expiresAt < Date.now()) {
+    tokenStore.delete(token ?? "");
+    res.status(404).json({ error: "Token inválido ou expirado." });
+    return;
+  }
+
+  let absPath: string;
+  try { absPath = resolveStoragePath(entry.filePath); } catch { res.status(400).json({ error: "Invalid path" }); return; }
+
+  if (!existsSync(absPath)) { res.status(404).json({ error: "File not found" }); return; }
+
+  let stats: import("fs").Stats;
+  try { stats = await fs.stat(absPath); } catch { res.status(500).json({ error: "Cannot stat file" }); return; }
+
+  const filename = path.basename(absPath);
+  const mimeType = getMimeType(absPath);
+
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+  res.setHeader("Content-Length", stats.size);
+  res.setHeader("Cache-Control", "no-store");
+
+  const stream = createReadStream(absPath);
+  stream.on("error", () => { if (!res.headersSent) res.status(500).json({ error: "Error reading file" }); });
   stream.pipe(res);
 });
 

@@ -32,6 +32,21 @@ const IMAGE_TYPES = ["image/jpeg","image/png","image/gif","image/webp","image/sv
 const VIDEO_TYPES = ["video/mp4","video/webm","video/quicktime"];
 const TEXT_PREFIXES = ["text/"];
 const TEXT_MIME_TYPES = ["application/json","application/javascript","application/xml"];
+const OFFICE_MIMES = new Set([
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-powerpoint",
+]);
+const OFFICE_EXTS = new Set([".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"]);
+
+function isOfficeFile(file: FileItem): boolean {
+  if (file.mimeType && OFFICE_MIMES.has(file.mimeType)) return true;
+  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  return OFFICE_EXTS.has(ext);
+}
 
 function isPreviewable(mimeType: string | null): boolean {
   if (!mimeType) return false;
@@ -254,7 +269,7 @@ export default function DrivePage() {
                     <button
                       key={f.path}
                       onClick={() => {
-                        if (isPreviewable(f.mimeType ?? null)) setPreviewItem(f as FileItem);
+                        if (isPreviewable(f.mimeType ?? null) || isOfficeFile(f as FileItem)) setPreviewItem(f as FileItem);
                         else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank");
                       }}
                       className="w-full text-left flex items-center gap-2 py-1 px-1 rounded text-sm hover:bg-accent/60 transition-colors"
@@ -370,7 +385,7 @@ export default function DrivePage() {
                     // Skip if clicking the action menu or rename input
                     if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                     if (file.type === "directory") setCurrentPath(file.path);
-                    else if (isPreviewable(file.mimeType ?? null)) setPreviewItem(file as FileItem);
+                    else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
                     else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                   }}
                 >
