@@ -78,28 +78,34 @@ else
   exit 1
 fi
 
-# install.sh: injeção de URLs
-SH_OUT=$(curl -s --max-time 5 "$API_BASE/api/download/install.sh" 2>&1); SH_EC=$?
+# install.sh: HTTP 200 + injeção de URLs
+SH_HTTP=$(curl -s -o /tmp/_verify_install_sh -w "%{http_code}" --max-time 5 "$API_BASE/api/download/install.sh" 2>&1); SH_EC=$?
+SH_OUT=$(cat /tmp/_verify_install_sh 2>/dev/null || echo "")
 if [ $SH_EC -ne 0 ]; then
   fail "GET /api/download/install.sh falhou (curl exit $SH_EC)"
+elif [ "$SH_HTTP" != "200" ]; then
+  fail "GET /api/download/install.sh retornou HTTP $SH_HTTP (esperado 200)"
 elif echo "$SH_OUT" | grep -q "__INSTALLER_BASE_URL__"; then
   fail "install.sh ainda contém placeholder __INSTALLER_BASE_URL__ (injeção falhou)"
 else
-  pass "install.sh: __INSTALLER_BASE_URL__ substituído corretamente"
+  pass "install.sh: HTTP 200 e __INSTALLER_BASE_URL__ substituído corretamente"
 fi
 
 if echo "$SH_OUT" | grep -q "__REPO_URL__"; then
   warn "install.sh: __REPO_URL__ é placeholder (aceitável sem git repo configurado)"
 fi
 
-# update.sh: injeção de URL
-UPDATE_SH_OUT=$(curl -s --max-time 5 "$API_BASE/api/download/update.sh" 2>&1); UPDATE_SH_EC=$?
+# update.sh: HTTP 200 + injeção de URL
+UPDATE_SH_HTTP=$(curl -s -o /tmp/_verify_update_sh -w "%{http_code}" --max-time 5 "$API_BASE/api/download/update.sh" 2>&1); UPDATE_SH_EC=$?
+UPDATE_SH_OUT=$(cat /tmp/_verify_update_sh 2>/dev/null || echo "")
 if [ $UPDATE_SH_EC -ne 0 ]; then
   fail "GET /api/download/update.sh falhou (curl exit $UPDATE_SH_EC)"
-elif echo "$UPDATE_SH_OUT" | grep -q "__INSTALLER_BASE_URL__"; then
-  fail "update.sh ainda contém placeholder __INSTALLER_BASE_URL__ (injeção falhou)"
+elif [ "$UPDATE_SH_HTTP" != "200" ]; then
+  fail "GET /api/download/update.sh retornou HTTP $UPDATE_SH_HTTP (esperado 200)"
+elif echo "$UPDATE_SH_OUT" | grep -qE '^INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"'; then
+  fail "update.sh ainda contém placeholder __INSTALLER_BASE_URL__ na atribuição (injeção falhou)"
 else
-  pass "update.sh: __INSTALLER_BASE_URL__ substituído corretamente"
+  pass "update.sh: HTTP 200 e __INSTALLER_BASE_URL__ substituído corretamente"
 fi
 
 # Tarball: HEAD request
