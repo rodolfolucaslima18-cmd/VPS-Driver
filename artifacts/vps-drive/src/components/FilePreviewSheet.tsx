@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Download, File, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { Download, File, AlertCircle, ExternalLink, Loader2, Pencil } from "lucide-react";
 import DOMPurify from "dompurify";
 import {
   Sheet,
@@ -7,7 +7,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+
+const ONLYOFFICE_URL = (import.meta.env.VITE_ONLYOFFICE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -350,6 +356,102 @@ function DocHtmlViewer({
   );
 }
 
+// ── OnlyOffice Editor ─────────────────────────────────────────────────────────
+
+interface EditSession {
+  documentServerUrl: string;
+  fileUrl: string;
+  callbackUrl: string;
+  fileName: string;
+  fileType: string;
+  key: string;
+}
+
+function getDocumentType(fileType: string): string {
+  if (["doc", "docx", "odt", "rtf", "txt"].includes(fileType)) return "word";
+  if (["xls", "xlsx", "ods", "csv"].includes(fileType)) return "cell";
+  if (["ppt", "pptx", "odp"].includes(fileType)) return "slide";
+  return "word";
+}
+
+function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const instanceRef = useRef<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const scriptId = "onlyoffice-api-script";
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+    const initEditor = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const DocsAPI = (window as any).DocsAPI;
+      if (!DocsAPI) {
+        setError("OnlyOffice API não carregou. Verifique se o servidor está acessível.");
+        return;
+      }
+      if (!containerRef.current) return;
+
+      try {
+        instanceRef.current = new DocsAPI.DocEditor(containerRef.current.id, {
+          document: {
+            fileType: session.fileType,
+            key: session.key,
+            title: session.fileName,
+            url: session.fileUrl,
+          },
+          documentType: getDocumentType(session.fileType),
+          editorConfig: {
+            callbackUrl: session.callbackUrl,
+            lang: "pt-BR",
+          },
+          height: "100%",
+          width: "100%",
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Falha ao inicializar o editor.");
+      }
+    };
+
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.src = `${session.documentServerUrl}/web-apps/apps/api/documents/api.js`;
+      script.onerror = () => setError("Não foi possível carregar o script do OnlyOffice. Verifique se o servidor está acessível.");
+      script.onload = initEditor;
+      document.head.appendChild(script);
+    } else {
+      initEditor();
+    }
+
+    return () => {
+      if (instanceRef.current) {
+        try { instanceRef.current.destroyEditor?.(); } catch { /* ignore */ }
+        instanceRef.current = null;
+      }
+    };
+  }, [session]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-destructive p-8">
+        <AlertCircle className="w-10 h-10" />
+        <p className="text-sm font-medium text-center max-w-[320px]">{error}</p>
+        <Button variant="outline" onClick={onClose}>Fechar</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      id="onlyoffice-editor-container"
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 function ViewerLoading() {
@@ -427,6 +529,31 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
   const kind = file && !officeKind ? getPreviewKind(file.mimeType) : "unsupported";
 
   const [tokenLoadingFor, setTokenLoadingFor] = useState<"microsoft" | "google" | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editSession, setEditSession] = useState<EditSession | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+
+  const openEditor = useCallback(async () => {
+    if (!file || !officeKind) return;
+    setEditLoading(true);
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/files/edit-session?path=${encodeURIComponent(file.path)}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "Falha ao criar sessão de edição");
+      }
+      const session = (await res.json()) as EditSession;
+      setEditSession(session);
+      setIsEditorOpen(true);
+    } catch (e) {
+      console.error("openEditor:", e);
+    } finally {
+      setEditLoading(false);
+    }
+  }, [file, officeKind]);
 
   const openInService = useCallback(
     async (service: "microsoft" | "google") => {
@@ -465,6 +592,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
     : "";
 
   return (
+    <>
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
         side="right"
@@ -481,6 +609,23 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                  {officeKind && ONLYOFFICE_URL && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-8 px-2.5 gap-1.5 text-xs"
+                      onClick={openEditor}
+                      disabled={editLoading}
+                      title="Editar com OnlyOffice — salva automaticamente no VPS Drive"
+                    >
+                      {editLoading ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Pencil className="w-3 h-3" />
+                      )}
+                      Editar
+                    </Button>
+                  )}
                   {officeKind && (
                     <>
                       <Button
@@ -598,5 +743,18 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
         )}
       </SheetContent>
     </Sheet>
+
+    {/* OnlyOffice Editor — fullscreen dialog */}
+    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) { setIsEditorOpen(false); setEditSession(null); } }}>
+      <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col">
+        {editSession && (
+          <OnlyOfficeEditor
+            session={editSession}
+            onClose={() => { setIsEditorOpen(false); setEditSession(null); }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

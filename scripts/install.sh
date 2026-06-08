@@ -81,6 +81,13 @@ else
   fi
 fi
 
+echo ""
+read -rp "Deseja instalar o OnlyOffice Document Server para edição de documentos? (requer Docker, ~1 GB) [s/N]: " WANT_ONLYOFFICE
+VITE_ONLYOFFICE_URL=""
+if [[ "${WANT_ONLYOFFICE,,}" == "s" ]]; then
+  VITE_ONLYOFFICE_URL="http://$VPS_HOST:8080"
+fi
+
 read -rp "Pasta para guardar os arquivos [/data/vps-drive]: " STORAGE_PATH
 STORAGE_PATH="${STORAGE_PATH:-/data/vps-drive}"
 
@@ -113,6 +120,11 @@ if [[ "$USE_HTTPS" == "true" ]]; then
   echo "  E-mail Certbot:    $CERTBOT_EMAIL"
 else
   echo "  HTTPS:             Não (HTTP apenas)"
+fi
+if [[ -n "$VITE_ONLYOFFICE_URL" ]]; then
+  echo "  OnlyOffice:        Sim ($VITE_ONLYOFFICE_URL)"
+else
+  echo "  OnlyOffice:        Não"
 fi
 echo ""
 read -rp "Confirmar instalação? [s/N]: " CONFIRM
@@ -252,6 +264,7 @@ COOKIE_SECURE=$COOKIE_SECURE
 BASE_PATH=/
 NODE_ENV=production
 VPS_HOST=$VPS_HOST
+VITE_ONLYOFFICE_URL=$VITE_ONLYOFFICE_URL
 EOF
 chmod 600 "$INSTALL_DIR/.env"
 ok "Arquivo .env criado"
@@ -407,6 +420,49 @@ if [[ "$USE_HTTPS" == "true" ]]; then
     ok "Renovação automática agendada via cron"
   else
     ok "Renovação automática via systemd timer (certbot.timer) já ativa"
+  fi
+fi
+
+# ── Docker + OnlyOffice Document Server ──────────────────────
+if [[ "${WANT_ONLYOFFICE,,}" == "s" ]]; then
+  step "Instalando Docker..."
+  if command -v docker &>/dev/null; then
+    ok "Docker já está instalado ($(docker --version))"
+  else
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    ok "Docker instalado"
+  fi
+
+  step "Iniciando OnlyOffice Document Server (pode demorar alguns minutos)..."
+  if docker ps -a --format '{{.Names}}' | grep -q '^onlyoffice$'; then
+    docker start onlyoffice 2>/dev/null || true
+    ok "Container onlyoffice já existia — iniciado"
+  else
+    docker run -d \
+      --name onlyoffice \
+      --restart=unless-stopped \
+      -p 8080:80 \
+      onlyoffice/documentserver
+    ok "Container onlyoffice criado e iniciado"
+  fi
+
+  echo "  Aguardando OnlyOffice ficar disponível (pode levar 1-2 minutos)..."
+  OO_OK=false
+  for i in $(seq 1 24); do
+    sleep 5
+    OO_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/healthcheck" 2>/dev/null || echo "000")
+    if [[ "$OO_STATUS" == "200" ]]; then
+      OO_OK=true
+      ok "OnlyOffice disponível: http://localhost:8080"
+      break
+    fi
+    echo "  Tentativa $i/24: HTTP $OO_STATUS — aguardando..."
+  done
+  if [[ "$OO_OK" != "true" ]]; then
+    warn "OnlyOffice não respondeu no tempo esperado. Verifique: docker logs onlyoffice"
+    warn "O VPS Drive funcionará normalmente — o botão Editar aparecerá quando o servidor estiver pronto."
   fi
 fi
 

@@ -502,7 +502,7 @@ router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
 
 // Shared handler for HEAD and GET /files/public/:token — no auth required
 async function servePublicToken(req: express.Request, res: express.Response, headOnly: boolean): Promise<void> {
-  const { token } = req.params;
+  const token = typeof req.params.token === "string" ? req.params.token : "";
 
   let entry: { filePath: string; expiresAt: Date } | undefined;
   try {
@@ -556,6 +556,105 @@ router.head("/files/public/:token", (req, res) => servePublicToken(req, res, tru
 
 // GET /files/public/:token — serve a tokenized file publicly (no auth required)
 router.get("/files/public/:token", (req, res) => servePublicToken(req, res, false));
+
+// GET /files/edit-session — generate a 4-hour edit session for OnlyOffice
+router.get("/files/edit-session", requireAuth, async (req, res): Promise<void> => {
+  const rawPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!rawPath) { res.status(400).json({ error: "Missing path" }); return; }
+
+  if (!hasOfficeExtension(rawPath)) {
+    res.status(400).json({ error: "Edição suportada apenas para arquivos Office (.docx, .xlsx, .pptx, .doc, .xls, .ppt)." });
+    return;
+  }
+
+  let absPath: string;
+  try { absPath = resolveStoragePath(rawPath); } catch { res.status(400).json({ error: "Invalid path" }); return; }
+  if (!existsSync(absPath)) { res.status(404).json({ error: "File not found" }); return; }
+
+  let stats: import("fs").Stats;
+  try { stats = await fs.stat(absPath); } catch { res.status(500).json({ error: "Cannot stat file" }); return; }
+  if (stats.isDirectory()) { res.status(400).json({ error: "Cannot edit a directory" }); return; }
+
+  const token = randomUUID();
+  const sessionKey = randomUUID();
+  const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours for edit sessions
+  const expiresAt = new Date(Date.now() + TTL_MS);
+
+  try {
+    await db.insert(fileTokensTable).values({ token, filePath: rawPath, expiresAt });
+  } catch (err) {
+    console.error("Failed to persist edit session token:", err);
+    res.status(500).json({ error: "Não foi possível criar a sessão de edição." });
+    return;
+  }
+
+  const vpsHost = process.env.VPS_HOST;
+  const proto = vpsHost
+    ? (process.env.COOKIE_SECURE === "true" ? "https" : "http")
+    : ((req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol);
+  const host = vpsHost ?? req.get("host");
+  const baseUrl = `${proto}://${host}`;
+
+  const onlyOfficeUrl = (process.env.VITE_ONLYOFFICE_URL ?? "").replace(/\/$/, "");
+  const fileExt = rawPath.slice(rawPath.lastIndexOf(".") + 1).toLowerCase();
+  const fileName = path.basename(rawPath);
+
+  res.json({
+    documentServerUrl: onlyOfficeUrl,
+    fileUrl: `${baseUrl}/api/files/public/${token}`,
+    callbackUrl: `${baseUrl}/api/files/onlyoffice/callback?path=${encodeURIComponent(rawPath)}`,
+    fileName,
+    fileType: fileExt,
+    key: sessionKey,
+  });
+});
+
+// POST /files/onlyoffice/callback — OnlyOffice calls this when a document is saved
+router.post("/files/onlyoffice/callback", express.json(), async (req, res): Promise<void> => {
+  const rawPath = typeof req.query.path === "string" ? req.query.path : "";
+
+  // OnlyOffice requires {"error":0} to stop retrying — always respond this way
+  if (!rawPath) {
+    console.error("OnlyOffice callback: missing path query param");
+    res.json({ error: 0 });
+    return;
+  }
+
+  const body = req.body as { status?: number; url?: string };
+  const status = body?.status;
+
+  // status=2: document saved and ready for download
+  if (status === 2) {
+    const downloadUrl = body.url;
+    if (!downloadUrl) {
+      console.error("OnlyOffice callback: status=2 but no url in body");
+      res.json({ error: 1 });
+      return;
+    }
+
+    let absPath: string;
+    try { absPath = resolveStoragePath(rawPath); } catch {
+      console.error("OnlyOffice callback: invalid path", rawPath);
+      res.json({ error: 1 });
+      return;
+    }
+
+    try {
+      const fileRes = await fetch(downloadUrl);
+      if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
+      const buffer = Buffer.from(await fileRes.arrayBuffer());
+      await fs.writeFile(absPath, buffer);
+      console.log(`OnlyOffice: saved "${rawPath}" (${buffer.length} bytes)`);
+    } catch (err) {
+      console.error("OnlyOffice callback: failed to save file:", err);
+      res.json({ error: 1 });
+      return;
+    }
+  }
+  // status=1: being edited; status=4|6: closed without changes — nothing to do
+
+  res.json({ error: 0 });
+});
 
 // GET /files/stats — storage statistics
 router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
