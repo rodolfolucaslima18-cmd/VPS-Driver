@@ -92,6 +92,16 @@ if echo "$SH_OUT" | grep -q "__REPO_URL__"; then
   warn "install.sh: __REPO_URL__ é placeholder (aceitável sem git repo configurado)"
 fi
 
+# update.sh: injeção de URL
+UPDATE_SH_OUT=$(curl -s --max-time 5 "$API_BASE/api/download/update.sh" 2>&1); UPDATE_SH_EC=$?
+if [ $UPDATE_SH_EC -ne 0 ]; then
+  fail "GET /api/download/update.sh falhou (curl exit $UPDATE_SH_EC)"
+elif echo "$UPDATE_SH_OUT" | grep -q "__INSTALLER_BASE_URL__"; then
+  fail "update.sh ainda contém placeholder __INSTALLER_BASE_URL__ (injeção falhou)"
+else
+  pass "update.sh: __INSTALLER_BASE_URL__ substituído corretamente"
+fi
+
 # Tarball: HEAD request
 TARBALL_HEAD=$(curl -s -I --max-time 10 "$API_BASE/api/download/project.tar.gz" 2>&1); HEAD_EC=$?
 if [ $HEAD_EC -eq 0 ] && echo "$TARBALL_HEAD" | grep -q "^HTTP.*200"; then

@@ -39,6 +39,33 @@ router.get("/download/install.sh", async (req, res): Promise<void> => {
   res.send(content);
 });
 
+// GET /download/update.sh — serve o script de atualização com URLs injetadas
+router.get("/download/update.sh", async (req, res): Promise<void> => {
+  const scriptPath = path.join(workspaceRoot, "scripts", "update.sh");
+
+  if (!existsSync(scriptPath)) {
+    res.status(404).json({ error: "Script de atualização não encontrado." });
+    return;
+  }
+
+  const proto = req.headers["x-forwarded-proto"] ?? req.protocol;
+  const baseUrl = `${proto}://${req.get("host")}`;
+
+  let content: string;
+  try {
+    content = await fs.readFile(scriptPath, "utf-8");
+  } catch {
+    res.status(500).json({ error: "Erro ao ler o script." });
+    return;
+  }
+
+  content = content.replace("__INSTALLER_BASE_URL__", baseUrl);
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="update.sh"');
+  res.send(content);
+});
+
 // GET /download/project.tar.gz — serve o código do projeto como tarball
 router.get("/download/project.tar.gz", (_req, res): void => {
   const excludes = [
