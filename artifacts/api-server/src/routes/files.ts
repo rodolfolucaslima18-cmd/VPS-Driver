@@ -361,10 +361,23 @@ router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
   stream.pipe(res);
 });
 
-// GET /files/token — generate a 30-min public-access token for a file
+// Office extensions allowed for public tokenization
+const OFFICE_EXTENSIONS = new Set([".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"]);
+
+function hasOfficeExtension(filePath: string): boolean {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  return OFFICE_EXTENSIONS.has(ext);
+}
+
+// GET /files/token — generate a 30-min public-access token for an Office file
 router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
   const rawPath = typeof req.query.path === "string" ? req.query.path : "";
   if (!rawPath) { res.status(400).json({ error: "Missing path" }); return; }
+
+  if (!hasOfficeExtension(rawPath)) {
+    res.status(400).json({ error: "Tokens are only supported for Office documents (.docx, .xlsx, .pptx, .doc, .xls, .ppt)." });
+    return;
+  }
 
   let absPath: string;
   try { absPath = resolveStoragePath(rawPath); } catch { res.status(400).json({ error: "Invalid path" }); return; }

@@ -72,6 +72,22 @@ function isOfficeFile(file: FileItem): boolean {
   return OFFICE_EXTS.has(ext);
 }
 
+// Google app and filetype per Office extension
+type GoogleApp = "document" | "spreadsheets" | "presentation";
+const OFFICE_EXT_MAP: Record<string, { app: GoogleApp; filetype: string; label: string }> = {
+  ".docx": { app: "document",      filetype: "docx", label: "Google Docs" },
+  ".doc":  { app: "document",      filetype: "doc",  label: "Google Docs" },
+  ".xlsx": { app: "spreadsheets",  filetype: "xlsx", label: "Google Planilhas" },
+  ".xls":  { app: "spreadsheets",  filetype: "xls",  label: "Google Planilhas" },
+  ".pptx": { app: "presentation",  filetype: "pptx", label: "Google Apresentações" },
+  ".ppt":  { app: "presentation",  filetype: "ppt",  label: "Google Apresentações" },
+};
+
+function getOfficeGoogleInfo(file: FileItem) {
+  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  return OFFICE_EXT_MAP[ext] ?? { app: "document" as GoogleApp, filetype: "docx", label: "Google Docs" };
+}
+
 async function fetchToken(filePath: string): Promise<string | null> {
   try {
     const res = await fetch(`${BASE_URL}/api/files/token?path=${encodeURIComponent(filePath)}`, {
@@ -89,17 +105,15 @@ function OfficeActions({ file }: { file: FileItem }) {
   const [loading, setLoading] = useState<"microsoft" | "google" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
+  const googleInfo = getOfficeGoogleInfo(file);
 
   async function handleMicrosoft() {
     setLoading("microsoft");
     setError(null);
     const publicUrl = await fetchToken(file.path);
     setLoading(null);
-    if (!publicUrl) {
-      setError("Não foi possível gerar o link temporário.");
-      return;
-    }
-    // Microsoft Office Online Viewer — supports .docx/.xlsx/.pptx and has in-viewer edit
+    if (!publicUrl) { setError("Não foi possível gerar o link temporário."); return; }
+    // Microsoft Office Online Viewer — view + edit within the viewer UI
     const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(publicUrl)}`;
     window.open(viewerUrl, "_blank", "noopener,noreferrer");
   }
@@ -109,13 +123,13 @@ function OfficeActions({ file }: { file: FileItem }) {
     setError(null);
     const publicUrl = await fetchToken(file.path);
     setLoading(null);
-    if (!publicUrl) {
-      setError("Não foi possível gerar o link temporário.");
-      return;
-    }
-    // Google Docs Viewer — opens the actual file content via URL (view mode)
-    const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(publicUrl)}&embedded=false`;
-    window.open(viewerUrl, "_blank", "noopener,noreferrer");
+    if (!publicUrl) { setError("Não foi possível gerar o link temporário."); return; }
+    // Google Docs/Sheets/Slides "create from URL" — imports the file and opens an editable copy.
+    // Requires the user to be signed into Google. filetype tells Google how to interpret the import.
+    const editUrl =
+      `https://docs.google.com/${googleInfo.app}/d/create` +
+      `?filetype=${googleInfo.filetype}&url=${encodeURIComponent(publicUrl)}`;
+    window.open(editUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -130,9 +144,7 @@ function OfficeActions({ file }: { file: FileItem }) {
         <p className="text-xs mt-0.5">{formatDate(file.modifiedAt)}</p>
       </div>
 
-      {error && (
-        <p className="text-xs text-destructive">{error}</p>
-      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="flex flex-col gap-2 w-full max-w-[240px]">
         <Button
@@ -142,7 +154,7 @@ function OfficeActions({ file }: { file: FileItem }) {
           disabled={loading !== null}
         >
           <Eye className="w-4 h-4" />
-          {loading === "microsoft" ? "Gerando link…" : "Abrir no Microsoft Office"}
+          {loading === "microsoft" ? "Gerando link…" : "Visualizar (Microsoft Office)"}
         </Button>
 
         <Button
@@ -152,7 +164,7 @@ function OfficeActions({ file }: { file: FileItem }) {
           disabled={loading !== null}
         >
           <ExternalLink className="w-4 h-4" />
-          {loading === "google" ? "Gerando link…" : "Abrir no Google Docs"}
+          {loading === "google" ? "Gerando link…" : `Editar no ${googleInfo.label}`}
         </Button>
 
         <Button variant="ghost" size="sm" className="w-full gap-2 text-muted-foreground" asChild>
@@ -164,7 +176,7 @@ function OfficeActions({ file }: { file: FileItem }) {
       </div>
 
       <p className="text-xs text-muted-foreground/60 text-center max-w-[240px] leading-relaxed">
-        Um link temporário válido por 30 minutos é gerado automaticamente para os visualizadores.
+        "Editar no {googleInfo.label}" importa o arquivo como cópia editável — requer login no Google.
       </p>
     </div>
   );
