@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import express, { Router, type IRouter } from "express";
 import path from "path";
 import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
@@ -149,12 +149,28 @@ router.get("/files/download", requireAuth, async (req, res): Promise<void> => {
   stream.pipe(res);
 });
 
+// Multer error handler — must be Express error middleware (4 args)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleMulterError(err: any, _req: express.Request, res: express.Response, next: express.NextFunction): void {
+  if (err?.name === "MulterError") {
+    const messages: Record<string, string> = {
+      LIMIT_FILE_SIZE: "Arquivo muito grande. O limite por arquivo é 500 MB.",
+      LIMIT_FILE_COUNT: "Muitos arquivos enviados de uma vez.",
+      LIMIT_UNEXPECTED_FILE: "Campo de arquivo inesperado.",
+    };
+    res.status(413).json({ error: messages[err.code as string] ?? `Erro no envio: ${err.message}` });
+    return;
+  }
+  next(err);
+}
+
 // POST /files/upload — upload files
 router.post(
   "/files/upload",
   requireAuth,
   upload.array("files"),
-  async (req, res): Promise<void> => {
+  handleMulterError,
+  async (req: express.Request, res: express.Response): Promise<void> => {
     const targetPath = typeof req.body.path === "string" ? req.body.path : "";
 
     let absDir: string;
@@ -307,7 +323,13 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  await fs.rm(absPath, { recursive: true, force: true });
+  try {
+    await fs.rm(absPath, { recursive: true, force: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Não foi possível excluir: ${msg}` });
+    return;
+  }
   res.sendStatus(204);
 });
 

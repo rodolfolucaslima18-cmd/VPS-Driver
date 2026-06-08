@@ -16,6 +16,16 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { FilePreviewSheet } from "@/components/FilePreviewSheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -91,6 +101,7 @@ export default function DrivePage() {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState("");
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<{ path: string; name: string } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
@@ -229,8 +240,14 @@ export default function DrivePage() {
     }
   }, [newFolderName, currentPath, mkdirMutation, invalidate, toast]);
 
-  const doDelete = useCallback(async (path: string, name: string) => {
-    if (!confirm(`Excluir "${name}"? Esta ação não pode ser desfeita.`)) return;
+  const doDelete = useCallback((path: string, name: string) => {
+    setPendingDeleteItem({ path, name });
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDeleteItem) return;
+    const { path, name } = pendingDeleteItem;
+    setPendingDeleteItem(null);
     try {
       await deleteMutation.mutateAsync({ params: { path } });
       invalidate();
@@ -239,7 +256,7 @@ export default function DrivePage() {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       toast({ title: "Não foi possível excluir", description: msg, variant: "destructive" });
     }
-  }, [deleteMutation, invalidate, toast]);
+  }, [pendingDeleteItem, deleteMutation, invalidate, toast]);
 
   const doRename = useCallback(async () => {
     if (!renamingPath) return;
@@ -335,6 +352,27 @@ export default function DrivePage() {
           onClose={() => setShareItem(null)}
         />
       )}
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!pendingDeleteItem} onOpenChange={(open) => { if (!open) setPendingDeleteItem(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir item</AlertDialogTitle>
+            <AlertDialogDescription>
+              Excluir <strong>"{pendingDeleteItem?.name}"</strong>? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDelete}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Hidden file inputs */}
       <input
