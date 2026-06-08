@@ -350,6 +350,13 @@ server {
 
     client_max_body_size 500M;
 
+    location = /index.html {
+        root $INSTALL_DIR/artifacts/vps-drive/dist/public;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        add_header Pragma "no-cache";
+        expires 0;
+    }
+
     location / {
         root $INSTALL_DIR/artifacts/vps-drive/dist/public;
         try_files \$uri \$uri/ /index.html;

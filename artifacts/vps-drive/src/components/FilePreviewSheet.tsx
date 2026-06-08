@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Download, File, AlertCircle } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Download, File, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import {
   Sheet,
@@ -41,10 +41,10 @@ function getExt(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-// "docx"     → DocxViewer    (docx-preview client-side, OOXML)
-// "doc"      → DocHtmlViewer (server-side mammoth; graceful error for binary BIFF .doc)
-// "xlsx"     → XlsxViewer   (SheetJS — .xlsx and binary .xls)
-// "pptx"     → PptxFallback (no browser renderer — download only)
+// "docx"  → DocxViewer    (docx-preview client-side, OOXML)
+// "doc"   → DocHtmlViewer (mammoth server-side; graceful fallback for binary .doc)
+// "xlsx"  → XlsxViewer   (SheetJS)
+// "pptx"  → PptxFallback (download/online only)
 type OfficeKind = "docx" | "doc" | "xlsx" | "pptx" | null;
 
 function getOfficeKind(file: FileItem): OfficeKind {
@@ -61,6 +61,12 @@ function getOfficeKind(file: FileItem): OfficeKind {
   if (mime.includes("ms-excel")) return "xlsx";
   if (mime.includes("ms-powerpoint")) return "pptx";
   return null;
+}
+
+function getMsLabel(kind: OfficeKind): string {
+  if (kind === "xlsx") return "Excel Online";
+  if (kind === "pptx") return "PowerPoint Online";
+  return "Word Online";
 }
 
 function getPreviewKind(mimeType: string | null): "image" | "video" | "pdf" | "text" | "unsupported" {
@@ -80,7 +86,7 @@ async function fetchFileBuffer(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
-// ── DOCX Viewer ──────────────────────────────────────────────────────────────
+// ── DOCX Viewer ───────────────────────────────────────────────────────────────
 
 function DocxViewer({ file }: { file: FileItem }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,17 +98,12 @@ function DocxViewer({ file }: { file: FileItem }) {
     setErrorMsg(null);
     let cancelled = false;
 
-    // We must wait for the ref to be attached before calling renderAsync.
-    // Schedule the async work with a microtask so the DOM element from the
-    // render below is committed first.
     const run = async () => {
       try {
         const buf = await fetchFileBuffer(file.path);
         if (cancelled) return;
         const { renderAsync } = await import("docx-preview");
         if (cancelled) return;
-        // By the time the await above resolves, the component has already
-        // committed its initial render, so containerRef.current is non-null.
         if (!containerRef.current) throw new Error("Container não montado.");
         containerRef.current.innerHTML = "";
         await renderAsync(buf, containerRef.current, undefined, {
@@ -129,7 +130,6 @@ function DocxViewer({ file }: { file: FileItem }) {
 
   return (
     <div className="relative flex-1 flex flex-col" style={{ minHeight: "calc(100vh - 220px)" }}>
-      {/* Container always mounted so containerRef is non-null when renderAsync runs */}
       <div
         ref={containerRef}
         className="flex-1 overflow-auto rounded-lg border border-border bg-white text-black p-2"
@@ -215,9 +215,15 @@ function XlsxViewer({ file }: { file: FileItem }) {
   );
 }
 
-// ── Download-only fallback (shared by PPTX and legacy .doc) ──────────────────
+// ── PPTX / download-only fallback ─────────────────────────────────────────────
 
-function DownloadFallback({ file, title, description }: { file: FileItem; title: string; description: string }) {
+function PptxFallback({
+  file,
+  onOpenMicrosoft,
+}: {
+  file: FileItem;
+  onOpenMicrosoft?: () => void;
+}) {
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-5 text-muted-foreground py-8">
@@ -229,34 +235,42 @@ function DownloadFallback({ file, title, description }: { file: FileItem; title:
         <p className="text-sm">{formatSize(file.size)} · {formatDate(file.modifiedAt)}</p>
       </div>
       <div className="text-center space-y-1 text-sm max-w-[280px]">
-        <p className="font-medium text-foreground">{title}</p>
-        <p className="text-muted-foreground leading-relaxed">{description}</p>
+        <p className="font-medium text-foreground">Apresentações PowerPoint</p>
+        <p className="text-muted-foreground leading-relaxed">
+          Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador.
+          Abra online ou baixe o arquivo.
+        </p>
       </div>
-      <Button variant="default" asChild>
-        <a href={downloadUrl} download={file.name}>
-          <Download className="w-4 h-4 mr-2" />
-          Baixar para visualizar
-        </a>
-      </Button>
+      <div className="flex gap-2 flex-wrap justify-center">
+        {onOpenMicrosoft && (
+          <Button variant="default" onClick={onOpenMicrosoft}>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            PowerPoint Online
+          </Button>
+        )}
+        <Button variant="outline" asChild>
+          <a href={downloadUrl} download={file.name}>
+            <Download className="w-4 h-4 mr-2" />
+            Baixar
+          </a>
+        </Button>
+      </div>
     </div>
   );
 }
 
-function PptxFallback({ file }: { file: FileItem }) {
-  return (
-    <DownloadFallback
-      file={file}
-      title="Apresentações PowerPoint"
-      description="Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador. Baixe o arquivo para abrir no PowerPoint ou LibreOffice."
-    />
-  );
-}
+// ── DOC Viewer (mammoth) ──────────────────────────────────────────────────────
+// Handles .docx and .doc via server-side mammoth. Binary BIFF .doc files
+// return a "body element" error; in that case a friendly fallback is shown
+// with "Abrir no Word Online" + download buttons.
 
-// DocHtmlViewer — calls /api/files/office-html (mammoth) for server-side HTML conversion.
-// Works for .docx and for any .doc that is actually OOXML internally.
-// Binary BIFF .doc files return 422; ViewerError is shown while the header
-// "Baixar" button (always visible) remains the fallback.
-function DocHtmlViewer({ file }: { file: FileItem }) {
+function DocHtmlViewer({
+  file,
+  onTryMicrosoftOnline,
+}: {
+  file: FileItem;
+  onTryMicrosoftOnline?: () => void;
+}) {
   const [state, setState] = useState<"loading" | "done" | "error">("loading");
   const [html, setHtml] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -290,7 +304,42 @@ function DocHtmlViewer({ file }: { file: FileItem }) {
   }, [file.path]);
 
   if (state === "loading") return <ViewerLoading />;
-  if (state === "error" && errorMsg) return <ViewerError message={errorMsg} />;
+
+  if (state === "error" && errorMsg) {
+    const isBinaryDoc = errorMsg.includes("body element") || errorMsg.includes("docx file");
+    if (isBinaryDoc) {
+      const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
+      return (
+        <div className="flex flex-col items-center justify-center flex-1 gap-5 text-muted-foreground py-8">
+          <div className="p-5 rounded-full bg-amber-50 dark:bg-amber-950/30">
+            <AlertCircle className="w-12 h-12 text-amber-400" />
+          </div>
+          <div className="text-center space-y-1 max-w-[300px]">
+            <p className="font-medium text-foreground">Formato .doc legado</p>
+            <p className="text-sm leading-relaxed">
+              Este arquivo está no formato binário antigo do Word e não pode ser
+              visualizado diretamente. Abra-o no Word Online ou baixe-o.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap justify-center">
+            {onTryMicrosoftOnline && (
+              <Button variant="default" onClick={onTryMicrosoftOnline}>
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Abrir no Word Online
+              </Button>
+            )}
+            <Button variant="outline" asChild>
+              <a href={downloadUrl} download={file.name}>
+                <Download className="w-4 h-4 mr-2" />
+                Baixar
+              </a>
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    return <ViewerError message={errorMsg} />;
+  }
 
   return (
     <div
@@ -301,7 +350,7 @@ function DocHtmlViewer({ file }: { file: FileItem }) {
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function ViewerLoading() {
   return (
@@ -370,12 +419,43 @@ function TextPreview({ file }: { file: FileItem }) {
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
   const isOpen = file !== null;
   const officeKind = file ? getOfficeKind(file) : null;
   const kind = file && !officeKind ? getPreviewKind(file.mimeType) : "unsupported";
+
+  const [tokenLoadingFor, setTokenLoadingFor] = useState<"microsoft" | "google" | null>(null);
+
+  const openInService = useCallback(
+    async (service: "microsoft" | "google") => {
+      if (!file || !officeKind) return;
+      setTokenLoadingFor(service);
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/files/token?path=${encodeURIComponent(file.path)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string }).error ?? "Falha ao gerar link");
+        }
+        const data = (await res.json()) as { token: string; publicUrl: string };
+        const encoded = encodeURIComponent(data.publicUrl);
+        const url =
+          service === "microsoft"
+            ? `https://view.officeapps.live.com/op/view.aspx?src=${encoded}`
+            : `https://docs.google.com/viewer?url=${encoded}`;
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch {
+        // silently ignore — the download button is always available as fallback
+      } finally {
+        setTokenLoadingFor(null);
+      }
+    },
+    [file, officeKind]
+  );
 
   const previewUrl = file
     ? `${BASE_URL}/api/files/preview?path=${encodeURIComponent(file.path)}`
@@ -393,27 +473,73 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
         {file && (
           <>
             <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
-              <div className="flex items-start justify-between gap-4 pr-6">
+              <div className="flex items-start justify-between gap-3 pr-6">
                 <div className="min-w-0">
                   <SheetTitle className="truncate text-base">{file.name}</SheetTitle>
                   <p className="text-xs text-muted-foreground mt-1">
                     {formatSize(file.size)} · {formatDate(file.modifiedAt)}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" className="shrink-0" asChild>
-                  <a href={downloadUrl} download={file.name}>
-                    <Download className="w-3.5 h-3.5 mr-1.5" />
-                    Baixar
-                  </a>
-                </Button>
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                  {officeKind && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2.5 gap-1.5 text-xs"
+                        onClick={() => openInService("microsoft")}
+                        disabled={tokenLoadingFor !== null}
+                        title={getMsLabel(officeKind)}
+                      >
+                        {tokenLoadingFor === "microsoft" ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <ExternalLink className="w-3 h-3" />
+                        )}
+                        {getMsLabel(officeKind)}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2.5 gap-1.5 text-xs"
+                        onClick={() => openInService("google")}
+                        disabled={tokenLoadingFor !== null}
+                        title="Google Docs"
+                      >
+                        {tokenLoadingFor === "google" ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <ExternalLink className="w-3 h-3" />
+                        )}
+                        Google Docs
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="outline" className="h-8 px-2.5 gap-1.5 text-xs shrink-0" asChild>
+                    <a href={downloadUrl} download={file.name}>
+                      <Download className="w-3 h-3" />
+                      Baixar
+                    </a>
+                  </Button>
+                </div>
               </div>
             </SheetHeader>
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
-              {officeKind === "doc" && <DocHtmlViewer file={file} />}
+              {officeKind === "doc" && (
+                <DocHtmlViewer
+                  file={file}
+                  onTryMicrosoftOnline={() => openInService("microsoft")}
+                />
+              )}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
-              {officeKind === "pptx" && <PptxFallback file={file} />}
+              {officeKind === "pptx" && (
+                <PptxFallback
+                  file={file}
+                  onOpenMicrosoft={() => openInService("microsoft")}
+                />
+              )}
 
               {!officeKind && kind === "image" && (
                 <div className="flex items-center justify-center flex-1 bg-muted/40 rounded-lg overflow-hidden">

@@ -179,6 +179,40 @@ if [ $_be_ec -ne 0 ]; then
 fi
 ok "Servidor compilado"
 
+# ── Corrigir cache do Nginx para index.html (one-time patch) ─────────────────
+NGINX_CONF="/etc/nginx/sites-available/vps-drive"
+if [[ -f "$NGINX_CONF" ]] && ! grep -q "no-store" "$NGINX_CONF"; then
+  step "Nginx: adicionando Cache-Control para index.html..."
+  TMP_PY=$(mktemp)
+  cat > "$TMP_PY" << 'PYEOF'
+import sys
+conf_path = sys.argv[1]
+install_dir = sys.argv[2]
+with open(conf_path) as f:
+    conf = f.read()
+block = (
+    '    location = /index.html {\n'
+    '        root ' + install_dir + '/artifacts/vps-drive/dist/public;\n'
+    '        add_header Cache-Control "no-store, no-cache, must-revalidate";\n'
+    '        add_header Pragma "no-cache";\n'
+    '        expires 0;\n'
+    '    }\n\n'
+)
+conf = conf.replace('    location / {', block + '    location / {', 1)
+with open(conf_path, 'w') as f:
+    f.write(conf)
+PYEOF
+  python3 "$TMP_PY" "$NGINX_CONF" "$INSTALL_DIR"
+  rm -f "$TMP_PY"
+  if nginx -t 2>&1; then
+    systemctl reload nginx
+    ok "Nginx atualizado: Cache-Control aplicado"
+  else
+    warn "Config Nginx inválida após patch — revertendo"
+    git -C / checkout -- "$NGINX_CONF" 2>/dev/null || true
+  fi
+fi
+
 # ── Reiniciar PM2 ────────────────────────────────────────────
 step "Reiniciando servidor (PM2)..."
 set -a
