@@ -380,8 +380,13 @@ router.get("/files/token", requireAuth, async (req, res): Promise<void> => {
   const expiresAt = Date.now() + TTL_MS;
   tokenStore.set(token, { filePath: rawPath, expiresAt });
 
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
-  const host = req.get("host");
+  // Prefer VPS_HOST from env (set during install) to avoid leaking internal/proxy hostnames.
+  // COOKIE_SECURE=true iff HTTPS is enabled, so it doubles as the scheme signal.
+  const vpsHost = process.env.VPS_HOST;
+  const proto = vpsHost
+    ? (process.env.COOKIE_SECURE === "true" ? "https" : "http")
+    : ((req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol);
+  const host = vpsHost ?? req.get("host");
   const publicUrl = `${proto}://${host}/api/files/public/${token}`;
 
   res.json({ token, publicUrl, expiresAt: new Date(expiresAt).toISOString() });

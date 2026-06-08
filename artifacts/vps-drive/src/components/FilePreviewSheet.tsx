@@ -72,21 +72,6 @@ function isOfficeFile(file: FileItem): boolean {
   return OFFICE_EXTS.has(ext);
 }
 
-type GoogleApp = "document" | "spreadsheets" | "presentation";
-
-function getGoogleApp(file: FileItem): GoogleApp {
-  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-  if (ext === ".xlsx" || ext === ".xls") return "spreadsheets";
-  if (ext === ".pptx" || ext === ".ppt") return "presentation";
-  return "document";
-}
-
-function getGoogleAppLabel(app: GoogleApp): string {
-  if (app === "spreadsheets") return "Google Sheets";
-  if (app === "presentation") return "Google Slides";
-  return "Google Docs";
-}
-
 async function fetchToken(filePath: string): Promise<string | null> {
   try {
     const res = await fetch(`${BASE_URL}/api/files/token?path=${encodeURIComponent(filePath)}`, {
@@ -101,42 +86,36 @@ async function fetchToken(filePath: string): Promise<string | null> {
 }
 
 function OfficeActions({ file }: { file: FileItem }) {
-  const [loading, setLoading] = useState<"view" | "edit" | null>(null);
+  const [loading, setLoading] = useState<"microsoft" | "google" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const googleApp = getGoogleApp(file);
-  const googleLabel = getGoogleAppLabel(googleApp);
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
 
-  async function handleView() {
-    setLoading("view");
+  async function handleMicrosoft() {
+    setLoading("microsoft");
     setError(null);
     const publicUrl = await fetchToken(file.path);
     setLoading(null);
     if (!publicUrl) {
-      setError("Não foi possível gerar o link de visualização.");
+      setError("Não foi possível gerar o link temporário.");
       return;
     }
+    // Microsoft Office Online Viewer — supports .docx/.xlsx/.pptx and has in-viewer edit
     const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(publicUrl)}`;
     window.open(viewerUrl, "_blank", "noopener,noreferrer");
   }
 
-  async function handleEdit() {
-    setLoading("edit");
+  async function handleGoogle() {
+    setLoading("google");
     setError(null);
     const publicUrl = await fetchToken(file.path);
     setLoading(null);
-
-    // Open Google Docs/Sheets/Slides in new tab — user can then use File > Import
-    const googleUrl = `https://docs.google.com/${googleApp}/create`;
-    window.open(googleUrl, "_blank", "noopener,noreferrer");
-
-    // Trigger download so user has the file ready to import
-    if (publicUrl) {
-      const a = document.createElement("a");
-      a.href = publicUrl;
-      a.download = file.name;
-      a.click();
+    if (!publicUrl) {
+      setError("Não foi possível gerar o link temporário.");
+      return;
     }
+    // Google Docs Viewer — opens the actual file content via URL (view mode)
+    const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(publicUrl)}&embedded=false`;
+    window.open(viewerUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -159,21 +138,21 @@ function OfficeActions({ file }: { file: FileItem }) {
         <Button
           variant="default"
           className="w-full gap-2"
-          onClick={handleView}
+          onClick={handleMicrosoft}
           disabled={loading !== null}
         >
           <Eye className="w-4 h-4" />
-          {loading === "view" ? "Gerando link…" : "Visualizar (Microsoft)"}
+          {loading === "microsoft" ? "Gerando link…" : "Abrir no Microsoft Office"}
         </Button>
 
         <Button
           variant="outline"
           className="w-full gap-2"
-          onClick={handleEdit}
+          onClick={handleGoogle}
           disabled={loading !== null}
         >
           <ExternalLink className="w-4 h-4" />
-          {loading === "edit" ? "Abrindo…" : `Editar no ${googleLabel}`}
+          {loading === "google" ? "Gerando link…" : "Abrir no Google Docs"}
         </Button>
 
         <Button variant="ghost" size="sm" className="w-full gap-2 text-muted-foreground" asChild>
@@ -185,8 +164,7 @@ function OfficeActions({ file }: { file: FileItem }) {
       </div>
 
       <p className="text-xs text-muted-foreground/60 text-center max-w-[240px] leading-relaxed">
-        "Editar no {googleLabel}" abre um documento em branco — importe o arquivo baixado usando{" "}
-        <span className="font-medium">Arquivo → Importar</span>.
+        Um link temporário válido por 30 minutos é gerado automaticamente para os visualizadores.
       </p>
     </div>
   );
