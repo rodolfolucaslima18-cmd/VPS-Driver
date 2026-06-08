@@ -279,18 +279,37 @@ fi
 ok "Dependências instaladas"
 
 step "Aplicando schema do banco de dados..."
-DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push --force 2>&1 | tail -5
+set +e
+_db_out=$(DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push-force 2>&1); _db_ec=$?
+set -e
+# Sempre mostrar saída para diagnóstico
+echo "$_db_out" | tail -15
+if [ $_db_ec -ne 0 ]; then
+  error "Falha ao aplicar schema do banco (código $_db_ec). Verifique as últimas linhas acima."
+fi
 ok "Schema do banco de dados aplicado"
 
 # ── Build frontend ────────────────────────────────────────────
 step "Fazendo build do frontend..."
-BASE_PATH=/ PORT=3000 NODE_ENV=production \
-  pnpm --filter @workspace/vps-drive run build 2>&1 | tail -5
+set +e
+_fe_out=$(BASE_PATH=/ PORT=3000 NODE_ENV=production \
+  pnpm --filter @workspace/vps-drive run build 2>&1); _fe_ec=$?
+set -e
+echo "$_fe_out" | tail -8
+if [ $_fe_ec -ne 0 ]; then
+  error "Falha no build do frontend (código $_fe_ec). Verifique as últimas linhas acima."
+fi
 ok "Frontend compilado"
 
 # ── Build backend ─────────────────────────────────────────────
 step "Fazendo build do servidor..."
-pnpm --filter @workspace/api-server run build 2>&1 | tail -5
+set +e
+_be_out=$(pnpm --filter @workspace/api-server run build 2>&1); _be_ec=$?
+set -e
+echo "$_be_out" | tail -5
+if [ $_be_ec -ne 0 ]; then
+  error "Falha no build do servidor (código $_be_ec). Verifique as últimas linhas acima."
+fi
 ok "Servidor compilado"
 
 # ── Configurar Nginx ─────────────────────────────────────────
