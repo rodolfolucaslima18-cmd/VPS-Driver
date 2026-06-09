@@ -134,6 +134,10 @@ export default function DrivePage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  // Stable refs to the latest upload callbacks — used by native DOM listeners
+  // so the listener closure never goes stale across re-renders.
+  const doUploadRef = useRef<(fileList: FileList | null) => Promise<void>>(async () => {});
+  const doUploadFolderRef = useRef<(fileList: FileList | null) => Promise<void>>(async () => {});
   const { user } = useAuth();
   const isMaster = user?.role === "master";
   const { toast } = useToast();
@@ -352,6 +356,38 @@ export default function DrivePage() {
       if (folderInputRef.current) folderInputRef.current.value = "";
     });
   }, [doUploadWithPaths, toast]);
+
+  // Keep stable refs pointing to the latest callbacks so native DOM listeners
+  // never capture a stale closure.
+  useEffect(() => { doUploadRef.current = doUpload; }, [doUpload]);
+  useEffect(() => { doUploadFolderRef.current = doUploadFolder; }, [doUploadFolder]);
+
+  // Attach native 'change' listeners to file inputs.
+  // React's synthetic onChange can silently fail to fire for programmatically-
+  // triggered file inputs (especially webkitdirectory) in some browsers.
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    const handler = () => {
+      doUploadRef.current(input.files).catch((err) => {
+        console.error("[VPS Drive] doUpload error:", err);
+      });
+    };
+    input.addEventListener("change", handler);
+    return () => input.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    const input = folderInputRef.current;
+    if (!input) return;
+    const handler = () => {
+      doUploadFolderRef.current(input.files).catch((err) => {
+        console.error("[VPS Drive] doUploadFolder error:", err);
+      });
+    };
+    input.addEventListener("change", handler);
+    return () => input.removeEventListener("change", handler);
+  }, []);
 
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -629,12 +665,6 @@ export default function DrivePage() {
         type="file"
         multiple
         className="hidden"
-        onChange={(e) => {
-          doUpload(e.target.files).catch((err) => {
-            console.error("[VPS Drive] doUpload error:", err);
-            toast({ title: "Erro ao enviar arquivos", description: String(err), variant: "destructive" });
-          });
-        }}
       />
       <input
         ref={folderInputRef}
@@ -643,12 +673,6 @@ export default function DrivePage() {
         webkitdirectory="true"
         multiple
         className="hidden"
-        onChange={(e) => {
-          doUploadFolder(e.target.files).catch((err) => {
-            console.error("[VPS Drive] doUploadFolder error:", err);
-            toast({ title: "Erro ao enviar pasta", description: String(err), variant: "destructive" });
-          });
-        }}
       />
 
       {/* Sidebar */}
