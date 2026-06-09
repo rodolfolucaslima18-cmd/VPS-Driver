@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
-import { eq, lt, inArray, and, desc } from "drizzle-orm";
-import { db, fileTokensTable, folderPasswordsTable, fileAccessLogTable } from "@workspace/db";
+import { eq, lt, inArray, and, desc, asc, not, like, ilike, or, count } from "drizzle-orm";
+import { db, fileTokensTable, folderPasswordsTable, fileAccessLogTable, fileIndexTable } from "@workspace/db";
 import {
   STORAGE_ROOT,
   ensureStorageRoot,
@@ -16,6 +16,7 @@ import {
 } from "../lib/storage";
 import { requireAuth, requireMaster } from "../middlewares/requireAuth";
 import { hashPassword, verifyPassword } from "../lib/auth";
+import { indexItem, removeFromIndex, moveInIndex, indexSubtree, reindexAll } from "../lib/file-index";
 import {
   ListFilesQueryParams,
   DeleteItemQueryParams,
@@ -71,7 +72,7 @@ ensureStorageRoot().catch((err) => {
   console.error("Failed to create storage root:", err);
 });
 
-// GET /files — list directory contents
+// GET /files — list directory contents (SQL-index backed, O(1) on 1000+ files)
 router.get("/files", requireAuth, async (req, res): Promise<void> => {
   const parsed = ListFilesQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -79,7 +80,6 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Pagination params — read directly from query to avoid touching generated schema
   const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),   10) || 1);
   const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit ?? "200"), 10) || 200));
 
@@ -92,7 +92,6 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (!existsSync(absPath)) {
-    // Return empty list if root doesn't exist yet
     if (absPath === STORAGE_ROOT) {
       res.json({ items: [], total: 0, page: 1, totalPages: 1 });
       return;
@@ -101,15 +100,7 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  let entries: import("fs").Dirent[];
-  try {
-    entries = await fs.readdir(absPath, { withFileTypes: true });
-  } catch {
-    res.status(400).json({ error: "Not a directory or cannot read" });
-    return;
-  }
-
-  // Check if the current path itself is locked (non-master users)
+  // Check if the current folder is locked (non-master users)
   const currentFolderPath = parsed.data.path ?? "";
   if (req.session.role !== "master" && currentFolderPath !== "") {
     const [lockRow] = await db
@@ -126,64 +117,131 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  // Optional search filter (case-insensitive substring match on filename)
   const searchRaw = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const searchLC  = searchRaw.toLowerCase();
 
-  // Sort using Dirent.isDirectory() — no stat needed to order dirs-first alphabetically
-  const visible = entries
-    .filter((e) => !e.name.startsWith("."))
-    .filter((e) => !searchLC || e.name.toLowerCase().includes(searchLC))
-    .sort((a, b) => {
-      const aDir = a.isDirectory() ? 0 : 1;
-      const bDir = b.isDirectory() ? 0 : 1;
-      if (aDir !== bDir) return aDir - bDir;
-      return a.name.localeCompare(b.name);
-    });
+  // ── Build SQL WHERE clause ──────────────────────────────────────────────────
+  const hideHidden = not(like(fileIndexTable.name, ".%"));
 
-  const total      = visible.length;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const pageEntries = visible.slice((page - 1) * limit, page * limit);
-
-  // Stat only the items on this page, using bounded-concurrency batches of 20
-  const BATCH = 20;
-  const pageItems: ReturnType<typeof buildFileItem>[] = [];
-  for (let i = 0; i < pageEntries.length; i += BATCH) {
-    const batch = pageEntries.slice(i, i + BATCH);
-    const results = await Promise.all(
-      batch.map(async (entry) => {
-        const entryPath = path.join(absPath, entry.name);
-        try {
-          const stats = await fs.stat(entryPath);
-          return buildFileItem(entryPath, stats);
-        } catch {
-          return null;
-        }
-      })
-    );
-    pageItems.push(...(results.filter(Boolean) as ReturnType<typeof buildFileItem>[]));
+  let whereClause;
+  if (searchLC) {
+    // Recursive search across the entire subtree of the current folder
+    const pathScope = currentFolderPath === ""
+      ? undefined
+      : or(
+          eq(fileIndexTable.parentPath, currentFolderPath),
+          like(fileIndexTable.parentPath, currentFolderPath + "/%"),
+        );
+    whereClause = and(hideHidden, ilike(fileIndexTable.name, `%${searchLC}%`), pathScope);
+  } else {
+    whereClause = and(hideHidden, eq(fileIndexTable.parentPath, currentFolderPath));
   }
 
-  // Enrich only page directories with hasPassword flag
-  const pageDirPaths = pageItems.filter((i) => i.type === "directory").map((i) => i.path);
+  // ── Count via index ─────────────────────────────────────────────────────────
+  const [{ value: indexTotal }] = await db
+    .select({ value: count() })
+    .from(fileIndexTable)
+    .where(whereClause);
+
+  // ── Disk fallback if index is empty for a known-non-empty directory ─────────
+  // (handles the cold-start state before the first reindex)
+  if (indexTotal === 0 && !searchLC) {
+    const diskEntries = await fs.readdir(absPath, { withFileTypes: true }).catch(() => [] as import("fs").Dirent[]);
+    const visible = diskEntries.filter((e) => !e.name.startsWith("."));
+
+    if (visible.length > 0) {
+      // Trigger background reindex so subsequent requests use the fast SQL path
+      reindexAll().catch(() => {});
+
+      const sorted = [...visible].sort((a, b) => {
+        const aDir = a.isDirectory() ? 0 : 1;
+        const bDir = b.isDirectory() ? 0 : 1;
+        if (aDir !== bDir) return aDir - bDir;
+        return a.name.localeCompare(b.name);
+      });
+
+      const total      = sorted.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const pageEntries = sorted.slice((page - 1) * limit, page * limit);
+
+      const BATCH = 20;
+      const pageItems: ReturnType<typeof buildFileItem>[] = [];
+      for (let i = 0; i < pageEntries.length; i += BATCH) {
+        const batch = pageEntries.slice(i, i + BATCH);
+        const results = await Promise.all(
+          batch.map(async (entry) => {
+            const entryPath = path.join(absPath, entry.name);
+            try {
+              const stats = await fs.stat(entryPath);
+              return buildFileItem(entryPath, stats);
+            } catch { return null; }
+          })
+        );
+        pageItems.push(...(results.filter(Boolean) as ReturnType<typeof buildFileItem>[]));
+      }
+
+      const pageDirPaths = pageItems.filter((i) => i.type === "directory").map((i) => i.path);
+      const lockedPaths  = new Set<string>();
+      if (pageDirPaths.length > 0) {
+        const locked = await db
+          .select({ path: folderPasswordsTable.path })
+          .from(folderPasswordsTable)
+          .where(inArray(folderPasswordsTable.path, pageDirPaths));
+        locked.forEach((r) => lockedPaths.add(r.path));
+      }
+
+      if (req.session.userId && currentFolderPath !== "") {
+        logFileAccess(req.session.userId, currentFolderPath, "inode/directory").catch(() => {});
+      }
+
+      res.json({
+        items: pageItems.map((item) => ({
+          ...item,
+          hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
+        })),
+        total,
+        page,
+        totalPages,
+      });
+      return;
+    }
+  }
+
+  // ── SQL index response ──────────────────────────────────────────────────────
+  const total      = indexTotal;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const indexItems = await db
+    .select()
+    .from(fileIndexTable)
+    .where(whereClause)
+    .orderBy(desc(fileIndexTable.isDir), asc(fileIndexTable.name))
+    .limit(limit)
+    .offset((page - 1) * limit);
+
+  const dirPaths   = indexItems.filter((i) => i.isDir).map((i) => i.path);
   const lockedPaths = new Set<string>();
-  if (pageDirPaths.length > 0) {
+  if (dirPaths.length > 0) {
     const locked = await db
       .select({ path: folderPasswordsTable.path })
       .from(folderPasswordsTable)
-      .where(inArray(folderPasswordsTable.path, pageDirPaths));
+      .where(inArray(folderPasswordsTable.path, dirPaths));
     locked.forEach((r) => lockedPaths.add(r.path));
   }
 
-  // Log that the user browsed this folder (fire-and-forget, skip root)
   if (req.session.userId && currentFolderPath !== "") {
     logFileAccess(req.session.userId, currentFolderPath, "inode/directory").catch(() => {});
   }
 
   res.json({
-    items: pageItems.map((item) => ({
-      ...item,
-      hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
+    items: indexItems.map((item) => ({
+      name: item.name,
+      path: item.path,
+      type: item.isDir ? "directory" : "file",
+      size: item.size ?? 0,
+      modifiedAt: item.modifiedAt.toISOString(),
+      mimeType: item.mimeType,
+      hasPassword: item.isDir ? lockedPaths.has(item.path) : false,
     })),
     total,
     page,
@@ -327,6 +385,17 @@ router.post(
       logFileAccess(userId, uploadedFile.path, uploadedFile.mimeType ?? undefined).catch(() => {});
     }
 
+    // Fire-and-forget: update file index for all uploaded files and any new parent directories
+    for (const uploadedFile of uploaded) {
+      const absFilePath = path.join(STORAGE_ROOT, uploadedFile.path);
+      indexItem(absFilePath).catch(() => {});
+      let rel = uploadedFile.path;
+      while (rel.includes("/")) {
+        rel = rel.substring(0, rel.lastIndexOf("/"));
+        indexItem(path.join(STORAGE_ROOT, rel)).catch(() => {});
+      }
+    }
+
     res.json(uploaded);
   }
 );
@@ -354,6 +423,7 @@ router.post("/files/mkdir", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(absPath, { recursive: true });
   const stats = await fs.stat(absPath);
+  indexItem(absPath).catch(() => {});
   res.status(201).json(buildFileItem(absPath, stats));
 });
 
@@ -388,6 +458,7 @@ router.patch("/files/rename", requireAuth, async (req, res): Promise<void> => {
   // Ensure parent directory of new path exists
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
   await fs.rename(oldAbs, newAbs);
+  moveInIndex(parsed.data.oldPath, newAbs).catch(() => {});
 
   const stats = await fs.stat(newAbs);
   res.json(buildFileItem(newAbs, stats));
@@ -427,6 +498,7 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
     res.status(500).json({ error: `Não foi possível excluir: ${msg}` });
     return;
   }
+  removeFromIndex(parsed.data.path).catch(() => {});
   res.sendStatus(204);
 });
 
@@ -891,6 +963,7 @@ router.post("/files/bulk-delete", requireAuth, async (req, res): Promise<void> =
         }
         await fs.rm(absPath, { recursive: true, force: true });
         deleted.push(rawPath);
+        removeFromIndex(rawPath).catch(() => {});
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -938,6 +1011,7 @@ router.post("/files/bulk-move", requireAuth, async (req, res): Promise<void> => 
         await fs.mkdir(path.dirname(dstAbs), { recursive: true });
         await fs.rename(srcAbs, dstAbs);
         moved.push(rawPath);
+        moveInIndex(rawPath, dstAbs).catch(() => {});
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -980,6 +1054,7 @@ router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(path.dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);
+  moveInIndex(sourcePath, dstAbs).catch(() => {});
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
@@ -1029,9 +1104,21 @@ router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
   }
 
   await copyRecursive(srcAbs, dstAbs);
+  indexSubtree(dstAbs).catch(() => {});
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
+});
+
+// POST /files/reindex — full rebuild of the file index (master only)
+router.post("/files/reindex", requireMaster, async (_req, res): Promise<void> => {
+  try {
+    const { indexed } = await reindexAll();
+    res.json({ indexed, message: `Reindex completo: ${indexed} item(s) indexado(s).` });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Reindex falhou: ${msg}` });
+  }
 });
 
 // GET /files/stats — storage statistics
@@ -1054,5 +1141,25 @@ router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
     recentFiles,
   });
 });
+
+// ── Auto-reindex on startup if index is empty but storage has files ───────────
+// This runs once when the module is loaded (server start / PM2 restart after deploy).
+(async () => {
+  try {
+    const [{ value: cnt }] = await db.select({ value: count() }).from(fileIndexTable);
+    if (cnt === 0 && existsSync(STORAGE_ROOT)) {
+      const entries = await fs.readdir(STORAGE_ROOT).catch(() => [] as string[]);
+      const visible = entries.filter((e: string) => !e.startsWith("."));
+      if (visible.length > 0) {
+        console.log("[VPS Drive] File index empty — running background reindex...");
+        reindexAll()
+          .then(({ indexed }) => console.log(`[VPS Drive] Reindex complete: ${indexed} items`))
+          .catch((err) => console.error("[VPS Drive] Reindex error:", err));
+      }
+    }
+  } catch {
+    // Non-critical — index will be built lazily on first request
+  }
+})();
 
 export default router;

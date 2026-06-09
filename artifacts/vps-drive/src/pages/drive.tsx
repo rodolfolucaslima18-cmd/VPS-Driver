@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
@@ -160,6 +161,12 @@ export default function DrivePage() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [gridCols, setGridCols] = useState<number>(() => {
+    if (typeof window === "undefined") return 4;
+    const w = window.innerWidth;
+    return w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 768 ? 4 : w >= 640 ? 3 : 2;
+  });
   // Stable refs to the latest upload callbacks — used by native DOM listeners
   // so the listener closure never goes stale across re-renders.
   const doUploadRef = useRef<(fileList: FileList | null) => Promise<void>>(async () => {});
@@ -409,6 +416,40 @@ export default function DrivePage() {
   }, []);
 
   const clearSelection = useCallback(() => setSelectedPaths(new Set()), []);
+
+  // ── Grid column tracking (matches Tailwind sm/md/lg/xl breakpoints) ──────────
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      setGridCols(w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 768 ? 4 : w >= 640 ? 3 : 2);
+    };
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // ── Grid rows: flat displayedItems grouped by column count ───────────────────
+  const gridRows = useMemo(() => {
+    const rows: FileItem[][] = [];
+    for (let i = 0; i < displayedItems.length; i += gridCols) {
+      rows.push(displayedItems.slice(i, i + gridCols) as FileItem[]);
+    }
+    return rows;
+  }, [displayedItems, gridCols]);
+
+  // ── Virtualizers ─────────────────────────────────────────────────────────────
+  const listVirtualizer = useVirtualizer({
+    count: displayedItems.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 40,
+    overscan: 10,
+  });
+
+  const gridVirtualizer = useVirtualizer({
+    count: gridRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 154,
+    overscan: 3,
+  });
 
   const doBulkDelete = useCallback(async () => {
     setBulkDeletePending(false);
@@ -1027,6 +1068,7 @@ export default function DrivePage() {
 
         {/* File grid */}
         <div
+          ref={scrollContainerRef}
           className="flex-1 overflow-auto p-5"
           onClick={(e) => {
             if (selectedPaths.size === 0) return;
@@ -1069,8 +1111,16 @@ export default function DrivePage() {
             viewMode === "grid" ? (
               /* ── Grid view ── */
               <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                {displayedItems.map((file) => (
+              <div style={{ height: `${gridVirtualizer.getTotalSize()}px`, position: "relative" }}>
+                {gridVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const rowItems = gridRows[virtualRow.index];
+                  if (!rowItems) return null;
+                  return (
+                    <div
+                      key={virtualRow.index}
+                      style={{ position: "absolute", top: `${virtualRow.start}px`, width: "100%", display: "grid", gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gap: "12px" }}
+                    >
+                {rowItems.map((file) => (
                   <div
                     key={file.path}
                     draggable={renamingPath !== file.path}
@@ -1172,6 +1222,9 @@ export default function DrivePage() {
                     </div>
                   </div>
                 ))}
+                    </div>
+                  );
+                })}
               </div>
               {hasMore && (
                 <div className="flex flex-col items-center gap-2 pt-4">
@@ -1205,9 +1258,16 @@ export default function DrivePage() {
                   <span className="text-right">Modificado</span>
                   <span />
                 </div>
-                {displayedItems.map((file, idx) => (
+                <div style={{ height: `${listVirtualizer.getTotalSize()}px`, position: "relative" }}>
+                {listVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const file = displayedItems[virtualRow.index];
+                  if (!file) return null;
+                  return (
                   <div
                     key={file.path}
+                    ref={listVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    style={{ position: "absolute", top: `${virtualRow.start}px`, width: "100%" }}
                     draggable={renamingPath !== file.path}
                     onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/vps-drive-path", file.path); setDraggingItemPath(file.path); }}
                     onDragEnd={() => { setDraggingItemPath(null); setDragOverFolderPath(null); }}
@@ -1215,7 +1275,7 @@ export default function DrivePage() {
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
                     data-selection-item
-                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${highlightedPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary/60" : selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${virtualRow.index > 0 ? " border-t border-border/50" : ""} ${highlightedPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary/60" : selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
@@ -1310,7 +1370,9 @@ export default function DrivePage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                ))}
+                  );
+                })}
+                </div>
               </div>
               {hasMore && (
                 <div className="flex flex-col items-center gap-2 pt-4">
