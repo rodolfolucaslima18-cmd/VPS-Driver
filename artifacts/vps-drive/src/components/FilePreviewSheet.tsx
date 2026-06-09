@@ -381,18 +381,17 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const scriptId = "onlyoffice-api-script";
-    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const initEditor = () => {
+      if (cancelled || !containerRef.current) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const DocsAPI = (window as any).DocsAPI;
       if (!DocsAPI) {
         setError("OnlyOffice API não carregou. Verifique se o servidor está acessível.");
         return;
       }
-      if (!containerRef.current) return;
-
       try {
         instanceRef.current = new DocsAPI.DocEditor(containerRef.current.id, {
           document: {
@@ -410,22 +409,51 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
           width: "100%",
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Falha ao inicializar o editor.");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Falha ao inicializar o editor.");
       }
     };
 
-    if (!script) {
-      script = document.createElement("script");
+    // Poll for window.DocsAPI — React 19 intercepts scripts added to document.head
+    // and may suppress the onload callback, so we detect readiness via polling instead.
+    const waitForDocsAPI = () => {
+      let attempts = 0;
+      pollTimer = setInterval(() => {
+        if (cancelled) { clearInterval(pollTimer!); return; }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).DocsAPI) {
+          clearInterval(pollTimer!);
+          initEditor();
+        } else if (++attempts > 100) { // 10 s timeout
+          clearInterval(pollTimer!);
+          if (!cancelled) setError("OnlyOffice API não carregou. Verifique se o servidor está acessível.");
+        }
+      }, 100);
+    };
+
+    const scriptId = "onlyoffice-api-script";
+    const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+    if (!existing) {
+      const script = document.createElement("script");
       script.id = scriptId;
       script.src = `${session.documentServerUrl}/web-apps/apps/api/documents/api.js`;
-      script.onerror = () => setError("Não foi possível carregar o script do OnlyOffice. Verifique se o servidor está acessível.");
-      script.onload = initEditor;
+      script.onerror = () => {
+        if (!cancelled) setError("Não foi possível carregar o script do OnlyOffice. Verifique se o servidor está acessível.");
+      };
       document.head.appendChild(script);
-    } else {
+    }
+
+    // Whether the script was already present or just injected, poll for DocsAPI
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).DocsAPI) {
       initEditor();
+    } else {
+      waitForDocsAPI();
     }
 
     return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
       if (instanceRef.current) {
         try { instanceRef.current.destroyEditor?.(); } catch { /* ignore */ }
         instanceRef.current = null;

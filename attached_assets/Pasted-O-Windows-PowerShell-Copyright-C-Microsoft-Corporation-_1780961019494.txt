@@ -1,0 +1,65 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 08:23:15 PM -03 2026
+
+  System load:  0.23               Processes:             171
+  Usage of /:   26.9% of 97.27GB   Users logged in:       0
+  Memory usage: 49%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 20:14:52 2026 from 143.208.112.121
+root@vps-15458837:~# cd /opt/vps-drive
+export $(grep -v '^#' .env | xargs)
+pnpm --filter @workspace/vps-drive run build
+pm2 restart vps-drive-api --update-env
+
+> @workspace/vps-drive@0.0.0 build /opt/vps-drive/artifacts/vps-drive
+> vite build --config vite.config.ts
+
+vite v7.3.3 building client environment for production...
+src/components/ui/tooltip.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/label.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/dropdown-menu.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+src/components/ui/sheet.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+✓ 1843 modules transformed.
+dist/public/index.html                         1.37 kB │ gzip:   0.54 kB
+dist/public/assets/index-B128vHp9.css        107.59 kB │ gzip:  17.40 kB
+dist/public/assets/docx-preview-DlaFVB9v.js  172.23 kB │ gzip:  50.39 kB
+dist/public/assets/xlsx-CNerDvZX.js          429.19 kB │ gzip: 142.94 kB
+dist/public/assets/index-VMqRhoma.js         489.47 kB │ gzip: 153.07 kB
+✓ built in 4.76s
+[PM2] Applying action restartProcessId on app [vps-drive-api](ids: [ 0 ])
+[PM2] [vps-drive-api](0) ✓
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api    │ default     │ 0.0.0   │ fork    │ 18728    │ 0s     │ 9    │ online    │ 0%       │ 21.9mb   │ root     │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+root@vps-15458837:/opt/vps-drive#

@@ -1,0 +1,102 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 2022 root@129.121.52.84
+ssh: connect to host 129.121.52.84 port 2022: Connection refused
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 08:28:28 PM -03 2026
+
+  System load:  0.01               Processes:             172
+  Usage of /:   26.9% of 97.27GB   Users logged in:       0
+  Memory usage: 49%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 20:23:15 2026 from 143.208.112.121
+root@vps-15458837:~# curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/healthcheck
+200root@vps-15458837:iptables -I INPUT -p tcp --dport 8080 -j ACCEPTEPT
+iptables-save > /etc/iptables/rules.v4
+-bash: /etc/iptables/rules.v4: No such file or directory
+root@vps-15458837:~# mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+root@vps-15458837:~# curl -s -o /dev/null -w "%{http_code}" http://129.121.52.84:8080/web-apps/apps/api/documents/api.js
+200root@vps-15458837:curl -s -o /dev/null -w "%{http_code}" http://129.121.52.84:8080/web-apps/apps/api/documents/api.js.js
+200root@vps-15458837:curl http://129.121.52.84:8080/web-apps/apps/api/documents/api.js | head -5 -5
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0/*
+ * Copyright (C) Ascensio System SIA, 2009-2026
+ *
+ * This program is a free software product. You can redistribute it and/or
+ * modify it under the terms of the GNU Affero General Public License (AGPL)
+100 65363  100 65363    0     0  46.4M      0 --:--:-- --:--:-- --:--:-- 62.3M
+curl: (23) Failed writing body
+root@vps-15458837:~# pm2 env 0 | grep -i onlyoffice
+VITE_ONLYOFFICE_URL: http://129.121.52.84:8080
+VPS_DRIVE_INSTALLER_URL: https://central-share-hub.replit.appONLYOFFICE_URL=
+root@vps-15458837:~# client_loop: send disconnect: Connection reset
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 09:12:43 PM -03 2026
+
+  System load:  0.0                Processes:             174
+  Usage of /:   26.9% of 97.27GB   Users logged in:       1
+  Memory usage: 49%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 20:28:28 2026 from 143.208.112.121
+root@vps-15458837:~# set -a && source /opt/vps-drive/.env && set +a && pm2 restart vps-drive-api --update-env
+[PM2] Applying action restartProcessId on app [vps-drive-api](ids: [ 0 ])
+[PM2] [vps-drive-api](0) ✓
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api    │ default     │ 0.0.0   │ fork    │ 19387    │ 0s     │ 10   │ online    │ 0%       │ 18.9mb   │ root     │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+root@vps-15458837:~#

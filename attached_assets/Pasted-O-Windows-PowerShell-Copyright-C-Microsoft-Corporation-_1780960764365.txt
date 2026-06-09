@@ -1,0 +1,123 @@
+O Windows PowerShell
+Copyright (C) Microsoft Corporation. Todos os direitos reservados.
+
+Instale o PowerShell mais recente para obter novos recursos e aprimoramentos! https://aka.ms/PSWindows
+
+PS C:\Users\rodol> ssh -p 22022 root@129.121.52.84
+root@129.121.52.84's password:
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-124-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  8 08:14:51 PM -03 2026
+
+  System load:  0.0                Processes:             159
+  Usage of /:   21.8% of 97.27GB   Users logged in:       0
+  Memory usage: 38%                IPv4 address for ens3: 129.121.52.84
+  Swap usage:   0%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Mon Jun  8 20:10:21 2026 from 143.208.112.121
+root@vps-15458837:~# docker run -d --name onlyoffice \
+  --restart=unless-stopped \
+  -p 8080:80 \
+  onlyoffice/documentserver
+Unable to find image 'onlyoffice/documentserver:latest' locally
+latest: Pulling from onlyoffice/documentserver
+430b68fa5871: Pull complete
+b40150c1c271: Pull complete
+44abed8cc3cd: Pull complete
+249f1ebf7bc6: Pull complete
+0a2f7137b419: Pull complete
+82a05068d0c9: Pull complete
+e5a14e23914e: Pull complete
+4f4fb700ef54: Pull complete
+2e5b9c98c56b: Download complete
+227d45129232: Download complete
+Digest: sha256:e3da62a847b9a5d51a11f73cfea1d9c13c3be3809614490d4edddcf01dcf919b
+Status: Downloaded newer image for onlyoffice/documentserver:latest
+d5cb9df982ce102036d9f920b48b43244b6cde1c2e755bec920a4f1664e4dba2
+root@vps-15458837:~# sed -i 's|^ONLYOFFICE_URL=.*|ONLYOFFICE_URL=http://129.121.52.84:8080|' /opt/vps-drive/.env
+sed -i 's|^VITE_ONLYOFFICE_URL=.*|VITE_ONLYOFFICE_URL=http://129.121.52.84:8080|' /opt/vps-drive/.env
+root@vps-15458837:~# pm2 restart vps-drive-api
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [vps-drive-api](ids: [ 0 ])
+[PM2] [vps-drive-api](0) ✓
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api    │ default     │ 0.0.0   │ fork    │ 8269     │ 0s     │ 8    │ online    │ 0%       │ 22.0mb   │ root     │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+root@vps-15458837:~# docker logs -f onlyoffice
+find: ‘/var/www/onlyoffice/Data/certs’: No such file or directory
+Generating WOPI private key...Done
+Generating WOPI public key...Done
+Starting supervisor: supervisord.
+ * Starting periodic command scheduler cron
+   ...done.
+ * Starting nginx nginx
+   ...done.
+Generating AllFonts.js, please wait...Done
+Generating presentation themes, please wait...[pluginsmanager] Plugins initialization finished
+Done
+Generating js caches, please wait...Done
+ds:docservice: stopped
+ds:docservice: started
+ds:converter: stopped
+ds:converter: started
+ * Reloading nginx configuration nginx
+   ...done.
+ * Reloading nginx configuration nginx
+   ...done.
+JWT is enabled by default. A random secret is generated automatically. Run the command "docker exec d5cb9df982ce sudo documentserver-jwt-status.sh" to get information about JWT.
+==> /var/log/onlyoffice/documentserver/docservice/out.log <==
+[2026-06-08T23:15:38.581] [WARN] [localhost] [docId] [userId] nodeJS - Express server starting...
+[2026-06-08T23:15:38.588] [WARN] [localhost] [docId] [userId] nodeJS - notifyLicenseExpiration(): expiration date is not defined
+[2026-06-08T23:15:38.588] [WARN] [localhost] [docId] [userId] nodeJS - notifyLicenseExpiration(): expiration date is not defined
+[2026-06-08T23:15:38.746] [WARN] [localhost] [docId] [userId] nodeJS - Express server listening on port 8000 in production-linux mode. Version: 9.4.0. Build: 129
+[2026-06-08T23:15:38.746] [WARN] [localhost] [docId] [userId] nodeJS - embedded converter started
+[2026-06-08T23:17:10.731] [WARN] [localhost] [docId] [userId] nodeJS - Express server starting...
+[2026-06-08T23:17:10.734] [WARN] [localhost] [docId] [userId] nodeJS - notifyLicenseExpiration(): expiration date is not defined
+[2026-06-08T23:17:10.735] [WARN] [localhost] [docId] [userId] nodeJS - notifyLicenseExpiration(): expiration date is not defined
+[2026-06-08T23:17:10.767] [WARN] [localhost] [docId] [userId] nodeJS - Express server listening on port 8000 in production-linux mode. Version: 9.4.0. Build: 129
+[2026-06-08T23:17:10.768] [WARN] [localhost] [docId] [userId] nodeJS - embedded converter started
+
+==> /var/log/onlyoffice/documentserver/docservice/err.log <==
+
+==> /var/log/onlyoffice/documentserver/converter/out.log <==
+[2026-06-08T23:15:36.981] [WARN] [localhost] [docId] [userId] nodeJS - convertermaster: memory runtime detected - embedded converter runs inside DocService; no workers will be forked
+[2026-06-08T23:17:12.226] [WARN] [localhost] [docId] [userId] nodeJS - convertermaster: memory runtime detected - embedded converter runs inside DocService; no workers will be forked
+
+==> /var/log/onlyoffice/documentserver/converter/err.log <==
+
+==> /var/log/onlyoffice/documentserver/example/out.log <==
+
+==> /var/log/onlyoffice/documentserver/example/err.log <==
+
+==> /var/log/onlyoffice/documentserver/metrics/out.log <==
+
+==> /var/log/onlyoffice/documentserver/metrics/err.log <==
+
+==> /var/log/onlyoffice/documentserver/nginx.error.log <==
+
+==> /var/log/onlyoffice/documentserver-example/out.log <==
+
+==> /var/log/onlyoffice/documentserver-example/err.log <==
+pm2 restart vps-drive-api --update-env
