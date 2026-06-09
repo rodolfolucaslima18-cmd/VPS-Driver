@@ -52,6 +52,10 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  // Pagination params — read directly from query to avoid touching generated schema
+  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),   10) || 1);
+  const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit ?? "200"), 10) || 200));
+
   let absPath: string;
   try {
     absPath = resolveStoragePath(parsed.data.path ?? "");
@@ -128,8 +132,17 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     return a.name.localeCompare(b.name);
   });
 
+  const total      = validItems.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const pageItems  = validItems.slice((page - 1) * limit, page * limit);
+
+  res.setHeader("X-Total-Count", String(total));
+  res.setHeader("X-Total-Pages", String(totalPages));
+  res.setHeader("X-Page",        String(page));
+  res.setHeader("Access-Control-Expose-Headers", "X-Total-Count, X-Total-Pages, X-Page");
+
   res.json(
-    validItems.map((item) => ({
+    pageItems.map((item) => ({
       ...item,
       hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
     }))

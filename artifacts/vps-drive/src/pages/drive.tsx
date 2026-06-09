@@ -2,14 +2,14 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
 import { useLocation } from "wouter";
 import {
-  useListFiles, useGetStorageStats,
-  getListFilesQueryKey, getGetStorageStatsQueryKey,
+  useGetStorageStats,
+  getGetStorageStatsQueryKey,
   useUploadFiles, useCreateDirectory, useDeleteItem, useRenameItem
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -149,7 +149,6 @@ export default function DrivePage() {
     }
   }
 
-  const { data: files, isLoading } = useListFiles({ path: currentPath });
   const { data: stats } = useGetStorageStats();
 
   const uploadMutation = useUploadFiles();
@@ -157,10 +156,55 @@ export default function DrivePage() {
   const deleteMutation = useDeleteItem();
   const renameMutation = useRenameItem();
 
+  // ── Pagination state ──────────────────────────────────────────────────────
+  const PAGE_LIMIT = 200;
+  const [displayedItems, setDisplayedItems] = useState<FileItem[]>([]);
+  const [totalItems,     setTotalItems]     = useState(0);
+  const [currentPage,   setCurrentPage]    = useState(1);
+  const [isLoadingPage1, setIsLoadingPage1] = useState(false);
+  const [isLoadingMore,  setIsLoadingMore]  = useState(false);
+  const [hasMore,        setHasMore]        = useState(false);
+
+  const fetchFilesPage = useCallback(async (path: string, page: number) => {
+    const isFirst = page === 1;
+    if (isFirst) setIsLoadingPage1(true);
+    else         setIsLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ limit: String(PAGE_LIMIT), page: String(page) });
+      if (path) params.append("path", path);
+      const resp = await fetch(`${BASE_URL}/api/files?${params}`, { credentials: "include" });
+      if (!resp.ok) return;
+      const total      = parseInt(resp.headers.get("X-Total-Count") ?? "0", 10);
+      const totalPages = parseInt(resp.headers.get("X-Total-Pages") ?? "1", 10);
+      const items      = (await resp.json()) as FileItem[];
+      setDisplayedItems(prev => isFirst ? items : [...prev, ...items]);
+      setTotalItems(total);
+      setCurrentPage(page);
+      setHasMore(page < totalPages);
+    } finally {
+      if (isFirst) setIsLoadingPage1(false);
+      else         setIsLoadingMore(false);
+    }
+  }, []);
+
+  // Fetch page 1 whenever the current folder changes
+  useEffect(() => {
+    setDisplayedItems([]);
+    setCurrentPage(1);
+    setHasMore(false);
+    setTotalItems(0);
+    fetchFilesPage(currentPath, 1);
+  }, [currentPath, fetchFilesPage]);
+
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: getListFilesQueryKey({ path: currentPath }) });
+    // Reset pagination and reload page 1 for current folder
+    setDisplayedItems([]);
+    setCurrentPage(1);
+    setHasMore(false);
+    setTotalItems(0);
+    fetchFilesPage(currentPath, 1);
     queryClient.invalidateQueries({ queryKey: getGetStorageStatsQueryKey() });
-  }, [queryClient, currentPath]);
+  }, [queryClient, currentPath, fetchFilesPage]);
 
   // Focus rename input when rename mode activates
   useEffect(() => {
@@ -701,7 +745,7 @@ export default function DrivePage() {
             </div>
           )}
 
-          {isLoading ? (
+          {isLoadingPage1 ? (
             viewMode === "grid" ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                 {[...Array(12)].map((_, i) => (
@@ -715,11 +759,12 @@ export default function DrivePage() {
                 ))}
               </div>
             )
-          ) : files && files.length > 0 ? (
+          ) : displayedItems.length > 0 ? (
             viewMode === "grid" ? (
               /* ── Grid view ── */
+              <>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                {files.map((file) => (
+                {displayedItems.map((file) => (
                   <div
                     key={file.path}
                     className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
@@ -796,8 +841,20 @@ export default function DrivePage() {
                   </div>
                 ))}
               </div>
+              {hasMore && (
+                <div className="flex flex-col items-center gap-2 pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
+                  </p>
+                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1)} disabled={isLoadingMore}>
+                    {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
+                  </Button>
+                </div>
+              )}
+              </>
             ) : (
               /* ── List view ── */
+              <>
               <div className="flex flex-col rounded-xl border border-border overflow-hidden">
                 {/* Header */}
                 <div className="grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
@@ -807,7 +864,7 @@ export default function DrivePage() {
                   <span className="text-right">Modificado</span>
                   <span />
                 </div>
-                {files.map((file, idx) => (
+                {displayedItems.map((file, idx) => (
                   <div
                     key={file.path}
                     className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
@@ -888,7 +945,18 @@ export default function DrivePage() {
                   </div>
                 ))}
               </div>
-            )
+              {hasMore && (
+                <div className="flex flex-col items-center gap-2 pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
+                  </p>
+                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1)} disabled={isLoadingMore}>
+                    {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
+                  </Button>
+                </div>
+              )}
+            </>
+          )
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-3 text-muted-foreground min-h-[300px]">
               <div className="p-5 rounded-full bg-accent/50">
