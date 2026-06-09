@@ -11,8 +11,10 @@ import { useLocation } from "wouter";
 import {
   useGetStorageStats,
   getGetStorageStatsQueryKey,
-  useUploadFiles, useCreateDirectory, useDeleteItem, useRenameItem
+  useCreateDirectory, useDeleteItem, useRenameItem
 } from "@workspace/api-client-react";
+import { useUploadQueue } from "@/hooks/useUploadQueue";
+import { UploadQueuePanel } from "@/components/UploadQueuePanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -139,7 +141,6 @@ export default function DrivePage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     try { return (localStorage.getItem("vps-drive-view") as "grid" | "list") ?? "grid"; } catch { return "grid"; }
   });
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const [folderToUnlock, setFolderToUnlock] = useState<FileItem | null>(null);
@@ -169,8 +170,8 @@ export default function DrivePage() {
   });
   // Stable refs to the latest upload callbacks — used by native DOM listeners
   // so the listener closure never goes stale across re-renders.
-  const doUploadRef = useRef<(fileList: FileList | null) => Promise<void>>(async () => {});
-  const doUploadFolderRef = useRef<(fileList: FileList | null) => Promise<void>>(async () => {});
+  const doUploadRef = useRef<(fileList: FileList | null) => void>(() => {});
+  const doUploadFolderRef = useRef<(fileList: FileList | null) => void>(() => {});
   const { user } = useAuth();
   const isMaster = user?.role === "master";
   const { toast } = useToast();
@@ -188,7 +189,6 @@ export default function DrivePage() {
 
   const { data: stats } = useGetStorageStats();
 
-  const uploadMutation = useUploadFiles();
   const mkdirMutation = useCreateDirectory();
   const deleteMutation = useDeleteItem();
   const renameMutation = useRenameItem();
@@ -291,6 +291,8 @@ export default function DrivePage() {
     fetchRecent();
   }, [queryClient, currentPath, fetchFilesPage, searchQuery, fetchRecent]);
 
+  const uploadQueue = useUploadQueue({ onBatchComplete: invalidate });
+
   // Focus rename input when rename mode activates
   useEffect(() => {
     if (renamingPath !== null) {
@@ -305,89 +307,25 @@ export default function DrivePage() {
     }
   }, [newFolderMode]);
 
-  // Batch upload — used for folders, drag-and-drop with subfolders, and large file selections.
-  // Defined first so doUpload can reference it.
-  const doUploadWithPaths = useCallback(async (
+  // Enqueue files with their relative paths (used for folders, drag-drop with subfolders, paste)
+  const doUploadWithPaths = useCallback((
     entries: Array<{file: File; relativePath: string}>,
     onDone?: () => void,
   ) => {
     if (entries.length === 0) return;
-    const total = entries.length;
-    const BATCH = 50;
+    uploadQueue.enqueue(entries, currentPath);
+    onDone?.();
+  }, [currentPath, uploadQueue]);
 
-    if (total > 1000) {
-      toast({
-        title: "Upload grande detectado",
-        description: `Enviando ${total.toLocaleString("pt-BR")} arquivos. Isso pode demorar alguns minutos.`,
-      });
-    }
-
-    try {
-      for (let i = 0; i < entries.length; i += BATCH) {
-        const batch = entries.slice(i, i + BATCH);
-        const sent = Math.min(i + BATCH, total);
-        const pct = Math.round((sent / total) * 100);
-        setUploadProgress(
-          `Enviando ${sent.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} arquivo${total > 1 ? "s" : ""} (${pct}%)…`
-        );
-        const formData = new FormData();
-        if (currentPath) formData.append("path", currentPath);
-        batch.forEach(({ file }) => formData.append("files", file));
-        formData.append("relativePaths", JSON.stringify(batch.map((e) => e.relativePath)));
-        const resp = await fetch(`${BASE_URL}/api/files/upload`, {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        });
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
-          throw new Error((data as {error?: string}).error ?? `HTTP ${resp.status}`);
-        }
-      }
-      invalidate();
-      toast({ title: "Envio concluído", description: `${total.toLocaleString("pt-BR")} arquivo(s) enviado(s).` });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
-    } finally {
-      setUploadProgress(null);
-      onDone?.();
-    }
-  }, [currentPath, invalidate, toast]);
-
-  const doUpload = useCallback(async (fileList: FileList | null) => {
+  // Enqueue a flat FileList (plain file-picker or drag-drop without folders)
+  const doUpload = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
+    const entries = Array.from(fileList).map((f) => ({ file: f, relativePath: f.name }));
+    uploadQueue.enqueue(entries, currentPath);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [currentPath, uploadQueue]);
 
-    // For > 20 files use the same batched path to avoid one huge request
-    if (files.length > 20) {
-      const entries = files.map((f) => ({ file: f, relativePath: f.name }));
-      await doUploadWithPaths(entries, () => {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      });
-      return;
-    }
-
-    setUploadProgress(`Enviando ${files.length} arquivo${files.length > 1 ? "s" : ""}…`);
-    try {
-      await uploadMutation.mutateAsync({
-        data: {
-          files,
-          ...(currentPath ? { path: currentPath } : {}),
-        },
-      });
-      invalidate();
-      toast({ title: "Envio concluído", description: `${files.length} arquivo(s) enviado(s).` });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
-    } finally {
-      setUploadProgress(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [currentPath, uploadMutation, invalidate, toast, doUploadWithPaths]);
-
-  const doUploadFolder = useCallback(async (fileList: FileList | null) => {
+  const doUploadFolder = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) {
       toast({
         title: "Pasta vazia",
@@ -401,10 +339,9 @@ export default function DrivePage() {
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    await doUploadWithPaths(entries, () => {
-      if (folderInputRef.current) folderInputRef.current.value = "";
-    });
-  }, [doUploadWithPaths, toast]);
+    uploadQueue.enqueue(entries, currentPath);
+    if (folderInputRef.current) folderInputRef.current.value = "";
+  }, [currentPath, uploadQueue, toast]);
 
   const toggleSelection = useCallback((itemPath: string) => {
     setSelectedPaths(prev => {
@@ -548,9 +485,7 @@ export default function DrivePage() {
     const input = fileInputRef.current;
     if (!input) return;
     const handler = () => {
-      doUploadRef.current(input.files).catch((err) => {
-        console.error("[VPS Drive] doUpload error:", err);
-      });
+      doUploadRef.current(input.files);
     };
     input.addEventListener("change", handler);
     return () => input.removeEventListener("change", handler);
@@ -560,9 +495,7 @@ export default function DrivePage() {
     const input = folderInputRef.current;
     if (!input) return;
     const handler = () => {
-      doUploadFolderRef.current(input.files).catch((err) => {
-        console.error("[VPS Drive] doUploadFolder error:", err);
-      });
+      doUploadFolderRef.current(input.files);
     };
     input.addEventListener("change", handler);
     return () => input.removeEventListener("change", handler);
@@ -1026,9 +959,7 @@ export default function DrivePage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
-            {uploadProgress && (
-              <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>
-            )}
+
             <button
               className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
               title={viewMode === "grid" ? "Mudar para lista" : "Mudar para grade"}
@@ -1458,6 +1389,12 @@ export default function DrivePage() {
           </div>
         )}
       </div>
+
+      <UploadQueuePanel
+        items={uploadQueue.items}
+        onRetry={uploadQueue.retryItem}
+        onClearDone={uploadQueue.clearDone}
+      />
     </div>
   );
 }
