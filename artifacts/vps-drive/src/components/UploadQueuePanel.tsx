@@ -6,9 +6,10 @@ interface Props {
   items: UploadItem[];
   onRetry: (id: string) => void;
   onClearDone: () => void;
+  onDismiss: () => void;
 }
 
-export function UploadQueuePanel({ items, onRetry, onClearDone }: Props) {
+export function UploadQueuePanel({ items, onRetry, onClearDone, onDismiss }: Props) {
   const [minimized, setMinimized] = useState(false);
 
   if (items.length === 0) return null;
@@ -39,11 +40,12 @@ export function UploadQueuePanel({ items, onRetry, onClearDone }: Props) {
         >
           {minimized ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
+        {/* Always show dismiss when not active — clears done + errors */}
         {active === 0 && (
           <button
             className="p-0.5 rounded hover:bg-accent transition-colors text-muted-foreground"
             title="Fechar"
-            onClick={onClearDone}
+            onClick={onDismiss}
           >
             <X className="w-4 h-4" />
           </button>
@@ -109,23 +111,10 @@ export function UploadQueuePanel({ items, onRetry, onClearDone }: Props) {
         </div>
       )}
 
-      {/* Footer actions */}
-      {!minimized && done > 0 && active === 0 && errors === 0 && (
-        <div className="px-3 py-2 border-t border-border bg-muted/40">
-          <button
-            className="text-xs text-primary hover:underline"
-            onClick={onClearDone}
-          >
-            Limpar
-          </button>
-        </div>
-      )}
-      {!minimized && done > 0 && errors > 0 && active === 0 && (
+      {/* Footer: show "Limpar concluídos" when there are mixed done+error items and no active */}
+      {!minimized && active === 0 && done > 0 && errors > 0 && (
         <div className="px-3 py-2 border-t border-border bg-muted/40 flex justify-between items-center">
-          <button
-            className="text-xs text-primary hover:underline"
-            onClick={onClearDone}
-          >
+          <button className="text-xs text-primary hover:underline" onClick={onClearDone}>
             Limpar concluídos
           </button>
         </div>

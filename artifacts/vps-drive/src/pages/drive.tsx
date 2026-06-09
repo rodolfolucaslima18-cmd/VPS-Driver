@@ -501,6 +501,26 @@ export default function DrivePage() {
     return () => input.removeEventListener("change", handler);
   }, []);
 
+  // Paste-to-upload: files copied from the OS file manager or web
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      // Ignore paste events inside text inputs / textareas / contenteditable
+      const target = e.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
+      ) return;
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return;
+      e.preventDefault();
+      const entries = Array.from(files).map((f) => ({ file: f, relativePath: f.name }));
+      uploadQueue.enqueue(entries, currentPath);
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [currentPath, uploadQueue]);
+
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
     if (!name) { setNewFolderMode(false); return; }
@@ -1394,6 +1414,7 @@ export default function DrivePage() {
         items={uploadQueue.items}
         onRetry={uploadQueue.retryItem}
         onClearDone={uploadQueue.clearDone}
+        onDismiss={uploadQueue.clearAll}
       />
     </div>
   );

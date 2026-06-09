@@ -22,7 +22,8 @@ type Action =
   | { type: "DONE"; id: string }
   | { type: "ERROR"; id: string; error: string }
   | { type: "RETRY"; id: string }
-  | { type: "CLEAR_DONE" };
+  | { type: "CLEAR_DONE" }
+  | { type: "CLEAR_ALL" };
 
 function reducer(state: UploadItem[], action: Action): UploadItem[] {
   switch (action.type) {
@@ -52,6 +53,8 @@ function reducer(state: UploadItem[], action: Action): UploadItem[] {
       );
     case "CLEAR_DONE":
       return state.filter((i) => i.status !== "done");
+    case "CLEAR_ALL":
+      return [];
     default:
       return state;
   }
@@ -168,7 +171,21 @@ export function useUploadQueue({ onBatchComplete }: UseUploadQueueOptions = {}) 
 
   const clearDone = useCallback(() => {
     dispatch({ type: "CLEAR_DONE" });
+    // itemDataMapRef pruning happens in the useEffect below
   }, []);
 
-  return { items, enqueue, retryItem, clearDone };
+  const clearAll = useCallback(() => {
+    dispatch({ type: "CLEAR_ALL" });
+    itemDataMapRef.current.clear();
+  }, []);
+
+  // Prune itemDataMapRef whenever items are removed (done items after clearDone)
+  useEffect(() => {
+    const currentIds = new Set(items.map((i) => i.id));
+    itemDataMapRef.current.forEach((_, id) => {
+      if (!currentIds.has(id)) itemDataMapRef.current.delete(id);
+    });
+  }, [items]);
+
+  return { items, enqueue, retryItem, clearDone, clearAll };
 }
