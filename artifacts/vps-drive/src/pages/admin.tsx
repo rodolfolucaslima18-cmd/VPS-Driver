@@ -18,8 +18,6 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
-  Link,
-  Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -75,8 +73,6 @@ type VersionInfo = {
 
 type UpdateStatus = "idle" | "updating" | "success" | "error";
 
-type AdminSettings = { installerUrl: string };
-
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}min`;
@@ -100,7 +96,6 @@ export default function AdminPage() {
   const [updateMessage, setUpdateMessage] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [installerUrlDraft, setInstallerUrlDraft] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
     queryKey: ["admin", "users"],
@@ -113,30 +108,6 @@ export default function AdminPage() {
     queryFn: () => apiFetch("/api/admin/version"),
     retry: false,
     refetchInterval: 60_000,
-  });
-
-  const { data: settingsData } = useQuery<AdminSettings>({
-    queryKey: ["admin", "settings"],
-    queryFn: () => apiFetch("/api/admin/settings"),
-    retry: false,
-  });
-
-  const currentInstallerUrl = installerUrlDraft ?? settingsData?.installerUrl ?? "";
-
-  const saveSettingsMutation = useMutation({
-    mutationFn: (installerUrl: string) =>
-      apiFetch<{ ok: boolean; installerUrl: string }>("/api/admin/settings", {
-        method: "PATCH",
-        body: JSON.stringify({ installerUrl }),
-      }),
-    onSuccess: (res) => {
-      toast({ title: "Configuração salva", description: "URL de atualização salva com sucesso." });
-      setInstallerUrlDraft(null);
-      queryClient.setQueryData(["admin", "settings"], { installerUrl: res.installerUrl });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Erro ao salvar", description: err.message, variant: "destructive" });
-    },
   });
 
   const stopPolling = useCallback(() => {
@@ -461,8 +432,7 @@ export default function AdminPage() {
                       size="sm"
                       className="h-9 px-4 gap-2"
                       onClick={() => updateMutation.mutate()}
-                      disabled={updateMutation.isPending || !settingsData?.installerUrl}
-                      title={!settingsData?.installerUrl ? "Configure a URL de atualização abaixo antes de atualizar." : undefined}
+                      disabled={updateMutation.isPending}
                     >
                       {updateMutation.isPending ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -471,12 +441,6 @@ export default function AdminPage() {
                       )}
                       Atualizar agora
                     </Button>
-                    {!settingsData?.installerUrl && settingsData !== undefined && (
-                      <p className="text-xs text-amber-600 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        Configure a URL de atualização abaixo.
-                      </p>
-                    )}
                   </div>
                 )}
 
@@ -526,58 +490,6 @@ export default function AdminPage() {
                       Fechar
                     </Button>
                   </div>
-                )}
-              </div>
-
-              {/* Update configuration */}
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
-                  <Link className="w-4 h-4 text-primary" />
-                  Configuração de Atualização
-                </h2>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Informe a URL do deploy do Replit para que o botão "Atualizar agora" baixe o código
-                  mais recente (ex: <span className="font-mono">https://vps-drive.replit.app</span>).
-                </p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (installerUrlDraft !== null) {
-                      saveSettingsMutation.mutate(installerUrlDraft);
-                    }
-                  }}
-                  className="flex gap-2"
-                >
-                  <input
-                    type="url"
-                    value={currentInstallerUrl}
-                    onChange={(e) => setInstallerUrlDraft(e.target.value)}
-                    placeholder="https://vps-drive.replit.app"
-                    className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="h-9 px-4 gap-1.5 shrink-0"
-                    disabled={
-                      saveSettingsMutation.isPending ||
-                      installerUrlDraft === null ||
-                      installerUrlDraft === (settingsData?.installerUrl ?? "")
-                    }
-                  >
-                    {saveSettingsMutation.isPending ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
-                    )}
-                    Salvar
-                  </Button>
-                </form>
-                {settingsData?.installerUrl && installerUrlDraft === null && (
-                  <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    URL configurada: <span className="font-mono truncate">{settingsData.installerUrl}</span>
-                  </p>
                 )}
               </div>
 

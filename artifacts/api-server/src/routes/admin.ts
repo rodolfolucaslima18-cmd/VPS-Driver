@@ -6,7 +6,7 @@ import { requireMaster } from "../middlewares/requireAuth";
 import { hashPassword } from "../lib/auth";
 import { randomUUID } from "crypto";
 import { spawn } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 
 const router: IRouter = Router();
@@ -216,74 +216,11 @@ router.patch(
   },
 );
 
-// ── Helpers para manipulação do .env ─────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInstallDir(): string {
   return process.env.VPS_DRIVE_DIR ?? path.resolve(process.cwd());
 }
-
-function getEnvFilePath(): string {
-  return path.join(getInstallDir(), ".env");
-}
-
-function readEnvVar(key: string): string {
-  const envPath = getEnvFilePath();
-  if (!existsSync(envPath)) return process.env[key] ?? "";
-  const content = readFileSync(envPath, "utf-8");
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(`${key}=`)) {
-      return trimmed.slice(key.length + 1).replace(/^["']|["']$/g, "");
-    }
-  }
-  return process.env[key] ?? "";
-}
-
-function writeEnvVar(key: string, value: string): void {
-  const envPath = getEnvFilePath();
-  let content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-  const lines = content.split("\n");
-  const idx = lines.findIndex((l) => l.trimStart().startsWith(`${key}=`));
-  const newLine = `${key}=${value}`;
-  if (idx >= 0) {
-    lines[idx] = newLine;
-  } else {
-    if (content.length > 0 && !content.endsWith("\n")) lines.push("");
-    lines.push(newLine);
-  }
-  writeFileSync(envPath, lines.join("\n"));
-  process.env[key] = value;
-}
-
-// GET /admin/settings — lê configurações editáveis (apenas master)
-router.get("/admin/settings", requireMaster, (_req, res): void => {
-  res.json({ installerUrl: readEnvVar("VPS_DRIVE_INSTALLER_URL") });
-});
-
-// PATCH /admin/settings — salva configurações editáveis (apenas master)
-router.patch("/admin/settings", requireMaster, (req, res): void => {
-  const { installerUrl } = req.body as { installerUrl?: string };
-
-  if (installerUrl === undefined) {
-    res.status(400).json({ error: "Campo 'installerUrl' é obrigatório." });
-    return;
-  }
-
-  const trimmed = installerUrl.trim().replace(/\/$/, "");
-
-  if (trimmed !== "" && !/^https?:\/\/.+/.test(trimmed)) {
-    res.status(400).json({ error: "URL inválida. Use o formato https://exemplo.replit.app" });
-    return;
-  }
-
-  try {
-    writeEnvVar("VPS_DRIVE_INSTALLER_URL", trimmed);
-    res.json({ ok: true, installerUrl: trimmed });
-  } catch (err) {
-    console.error("Erro ao salvar configuração:", err);
-    res.status(500).json({ error: "Erro ao salvar configuração." });
-  }
-});
 
 // Stable start-time token: computed once when this module loads, changes on every restart.
 const SERVER_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
@@ -291,7 +228,7 @@ const SERVER_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOSt
 // GET /admin/version — versão atual do app
 router.get("/admin/version", requireMaster, (_req, res): void => {
   try {
-    const installDir = process.env.VPS_DRIVE_DIR ?? path.resolve(process.cwd());
+    const installDir = getInstallDir();
     let version = "0.0.0";
     const pkgPath = path.join(installDir, "package.json");
     if (existsSync(pkgPath)) {
@@ -314,8 +251,8 @@ router.get("/admin/version", requireMaster, (_req, res): void => {
   }
 });
 
-// POST /admin/update — inicia atualização do app via update.sh
-router.post("/admin/update", requireMaster, (req, res): void => {
+// POST /admin/update — inicia atualização do app via update.sh (puxa do GitHub)
+router.post("/admin/update", requireMaster, (_req, res): void => {
   try {
     const installDir = getInstallDir();
     const scriptPath = path.join(installDir, "scripts", "update.sh");
@@ -325,19 +262,10 @@ router.post("/admin/update", requireMaster, (req, res): void => {
       return;
     }
 
-    const installerBaseUrl = readEnvVar("VPS_DRIVE_INSTALLER_URL");
-    if (!installerBaseUrl) {
-      res.status(400).json({
-        error:
-          "URL de atualização não configurada. Configure-a na seção 'Configuração de Atualização' do painel admin.",
-      });
-      return;
-    }
-
     const child = spawn("bash", [scriptPath], {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, INSTALLER_BASE_URL: installerBaseUrl },
+      env: { ...process.env },
       cwd: installDir,
     });
     child.unref();

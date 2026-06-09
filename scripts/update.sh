@@ -3,9 +3,9 @@
 #  VPS Drive — Script de Atualização
 #  Atualiza código, dependências e rebuild sem reinstalar.
 #
-#  Uso:
-#    bash <(curl -sL https://HOST/api/download/update.sh)
-#    bash scripts/update.sh   (de dentro do projeto)
+#  Uso (VPS):
+#    sudo bash /opt/vps-drive/scripts/update.sh
+#  Ou via botão "Atualizar agora" no painel admin.
 # ============================================================
 set -euo pipefail
 
@@ -21,7 +21,7 @@ ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $1${NC}"; }
 error() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
 
-INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
+GITHUB_REPO="https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
 
 echo -e "
 ${BOLD}${CYAN}╔══════════════════════════════════════╗
@@ -65,20 +65,23 @@ if ! grep -q "^VITE_ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
   echo "VITE_ONLYOFFICE_URL=" >> "$ENV_FILE"
 fi
 
-# ── Baixar e extrair código novo ─────────────────────────────
-step "Baixando código atualizado..."
-
-if [[ -z "$INSTALLER_BASE_URL" || "$INSTALLER_BASE_URL" == "__INSTALLER_BASE_URL__" ]]; then
-  error "URL base não injetada. Use: bash <(curl -sL https://SEU_HOST/api/download/update.sh)"
+# ── Verificar git ────────────────────────────────────────────
+step "Verificando git..."
+if ! command -v git &>/dev/null; then
+  echo "  git não encontrado — instalando..."
+  apt-get install -y -qq git
 fi
+ok "git $(git --version | awk '{print $3}')"
+
+# ── Clonar código atualizado do GitHub ───────────────────────
+step "Baixando código atualizado do GitHub..."
 
 TMPDIR_UPDATE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
 
-echo "  Baixando de $INSTALLER_BASE_URL..."
-curl -sL --max-time 120 "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-  | tar -xzf - -C "$TMPDIR_UPDATE" 2>/dev/null
-ok "Código baixado e extraído"
+echo "  Clonando de $GITHUB_REPO..."
+git clone --depth=1 "$GITHUB_REPO" "$TMPDIR_UPDATE" 2>&1 | grep -v "^$" || true
+ok "Código obtido do GitHub"
 
 # ── Copiar arquivos preservando .env e dados ─────────────────
 step "Aplicando atualização (preservando .env e /data)..."
@@ -225,7 +228,7 @@ PYEOF
     ok "Nginx atualizado: Cache-Control aplicado"
   else
     warn "Config Nginx inválida após patch — revertendo"
-    git -C / checkout -- "$NGINX_CONF" 2>/dev/null || true
+    cp "$NGINX_CONF.bak" "$NGINX_CONF" 2>/dev/null || true
   fi
 fi
 

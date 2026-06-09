@@ -190,10 +190,7 @@ fi
 # ── Localizar ou obter o código do app ────────────────────────
 step "Localizando código do VPS Drive..."
 
-# URLs injetadas pelo servidor no momento do download do script
-DEFAULT_REPO_URL="__REPO_URL__"
-INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
-GIT_REPO="${VPS_DRIVE_REPO_URL:-$DEFAULT_REPO_URL}"
+GITHUB_REPO="https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
 
 # Detectar modo local: executado de dentro do projeto
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || echo "")"
@@ -216,35 +213,13 @@ if [[ -n "$PROJECT_ROOT" ]]; then
   fi
   ok "Código localizado em $INSTALL_DIR"
 elif [[ -f "$INSTALL_DIR/package.json" ]]; then
-  # Instalação prévia detectada — atualizar via download se possível
+  # Instalação prévia detectada — manter o código existente
   echo "  Instalação detectada em $INSTALL_DIR"
-  if [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
-    echo "  Atualizando código via $INSTALLER_BASE_URL..."
-    curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-      | tar -xzf - --overwrite --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
-    echo "  Código atualizado"
-  fi
   ok "Usando instalação existente em $INSTALL_DIR"
-elif [[ -n "$GIT_REPO" && "$GIT_REPO" != "__REPO_URL__" ]]; then
-  # Modo remoto via git
-  echo "  Clonando repositório: $GIT_REPO"
-  git clone "$GIT_REPO" "$INSTALL_DIR"
-  ok "Repositório clonado em $INSTALL_DIR"
-elif [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
-  # Baixar o código diretamente do servidor que serviu este instalador
-  echo "  Baixando código de $INSTALLER_BASE_URL..."
-  mkdir -p "$INSTALL_DIR"
-  curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-    | tar -xzf - --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
-  ok "Código extraído em $INSTALL_DIR"
 else
-  # Último recurso: pedir URL git manualmente
-  echo ""
-  echo -e "${YELLOW}Código do projeto não encontrado.${NC}"
-  echo ""
-  read -rp "URL do repositório git (ou Enter para cancelar): " MANUAL_REPO
-  [[ -z "$MANUAL_REPO" ]] && error "URL do repositório necessária."
-  git clone "$MANUAL_REPO" "$INSTALL_DIR"
+  # Modo remoto: clonar do GitHub
+  echo "  Clonando repositório: $GITHUB_REPO"
+  git clone --depth=1 "$GITHUB_REPO" "$INSTALL_DIR"
   ok "Repositório clonado em $INSTALL_DIR"
 fi
 
