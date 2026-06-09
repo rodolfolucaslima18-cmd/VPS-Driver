@@ -133,6 +133,23 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
           like(fileIndexTable.parentPath, currentFolderPath + "/%"),
         );
     whereClause = and(hideHidden, ilike(fileIndexTable.name, `%${searchLC}%`), pathScope);
+
+    // Enforce folder-password visibility: exclude contents of locked (non-unlocked) folders
+    if (req.session.role !== "master") {
+      const allLocked = await db
+        .select({ path: folderPasswordsTable.path })
+        .from(folderPasswordsTable);
+      const unlockedSet = new Set(req.session.unlockedFolders ?? []);
+      for (const { path: lp } of allLocked.filter((r) => !unlockedSet.has(r.path))) {
+        whereClause = and(
+          whereClause,
+          not(or(
+            eq(fileIndexTable.parentPath, lp),
+            like(fileIndexTable.parentPath, lp + "/%"),
+          )!),
+        );
+      }
+    }
   } else {
     whereClause = and(hideHidden, eq(fileIndexTable.parentPath, currentFolderPath));
   }
@@ -385,16 +402,25 @@ router.post(
       logFileAccess(userId, uploadedFile.path, uploadedFile.mimeType ?? undefined).catch(() => {});
     }
 
-    // Fire-and-forget: update file index for all uploaded files and any new parent directories
-    for (const uploadedFile of uploaded) {
-      const absFilePath = path.join(STORAGE_ROOT, uploadedFile.path);
-      indexItem(absFilePath).catch((err) => console.error("[file-index] upload indexItem:", err));
-      let rel = uploadedFile.path;
-      while (rel.includes("/")) {
-        rel = rel.substring(0, rel.lastIndexOf("/"));
-        indexItem(path.join(STORAGE_ROOT, rel)).catch((err) => console.error("[file-index] upload parent indexItem:", err));
-      }
-    }
+    // Await index updates (best-effort; errors logged but do not fail the upload response)
+    await Promise.allSettled(
+      uploaded.flatMap((uploadedFile) => {
+        const tasks: Promise<void>[] = [];
+        tasks.push(
+          indexItem(path.join(STORAGE_ROOT, uploadedFile.path))
+            .catch((err) => { console.error("[file-index] upload indexItem:", err); })
+        );
+        let rel = uploadedFile.path;
+        while (rel.includes("/")) {
+          rel = rel.substring(0, rel.lastIndexOf("/"));
+          tasks.push(
+            indexItem(path.join(STORAGE_ROOT, rel))
+              .catch((err) => { console.error("[file-index] upload parent indexItem:", err); })
+          );
+        }
+        return tasks;
+      })
+    );
 
     res.json(uploaded);
   }
@@ -423,7 +449,7 @@ router.post("/files/mkdir", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(absPath, { recursive: true });
   const stats = await fs.stat(absPath);
-  indexItem(absPath).catch((err) => console.error("[file-index] mkdir indexItem:", err));
+  try { await indexItem(absPath); } catch (err) { console.error("[file-index] mkdir indexItem:", err); }
   res.status(201).json(buildFileItem(absPath, stats));
 });
 
@@ -458,7 +484,7 @@ router.patch("/files/rename", requireAuth, async (req, res): Promise<void> => {
   // Ensure parent directory of new path exists
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
   await fs.rename(oldAbs, newAbs);
-  moveInIndex(parsed.data.oldPath, newAbs).catch((err) => console.error("[file-index] rename moveInIndex:", err));
+  try { await moveInIndex(parsed.data.oldPath, newAbs); } catch (err) { console.error("[file-index] rename moveInIndex:", err); }
 
   const stats = await fs.stat(newAbs);
   res.json(buildFileItem(newAbs, stats));
@@ -498,7 +524,7 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
     res.status(500).json({ error: `Não foi possível excluir: ${msg}` });
     return;
   }
-  removeFromIndex(parsed.data.path).catch((err) => console.error("[file-index] delete removeFromIndex:", err));
+  try { await removeFromIndex(parsed.data.path); } catch (err) { console.error("[file-index] delete removeFromIndex:", err); }
   res.sendStatus(204);
 });
 
@@ -963,7 +989,7 @@ router.post("/files/bulk-delete", requireAuth, async (req, res): Promise<void> =
         }
         await fs.rm(absPath, { recursive: true, force: true });
         deleted.push(rawPath);
-        removeFromIndex(rawPath).catch((err) => console.error("[file-index] bulk-delete removeFromIndex:", err));
+        try { await removeFromIndex(rawPath); } catch (err) { console.error("[file-index] bulk-delete removeFromIndex:", err); }
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -1011,7 +1037,7 @@ router.post("/files/bulk-move", requireAuth, async (req, res): Promise<void> => 
         await fs.mkdir(path.dirname(dstAbs), { recursive: true });
         await fs.rename(srcAbs, dstAbs);
         moved.push(rawPath);
-        moveInIndex(rawPath, dstAbs).catch((err) => console.error("[file-index] bulk-move moveInIndex:", err));
+        try { await moveInIndex(rawPath, dstAbs); } catch (err) { console.error("[file-index] bulk-move moveInIndex:", err); }
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -1054,7 +1080,7 @@ router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(path.dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);
-  moveInIndex(sourcePath, dstAbs).catch((err) => console.error("[file-index] move moveInIndex:", err));
+  try { await moveInIndex(sourcePath, dstAbs); } catch (err) { console.error("[file-index] move moveInIndex:", err); }
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
@@ -1104,7 +1130,7 @@ router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
   }
 
   await copyRecursive(srcAbs, dstAbs);
-  indexSubtree(dstAbs).catch((err) => console.error("[file-index] copy indexSubtree:", err));
+  try { await indexSubtree(dstAbs); } catch (err) { console.error("[file-index] copy indexSubtree:", err); }
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
