@@ -350,19 +350,34 @@ router.post(
   upload.array("files"),
   handleMulterError,
   async (req: express.Request, res: express.Response): Promise<void> => {
+    // Capture req.files immediately — multer has already written them to UPLOAD_TMP_DIR
+    // by the time this handler runs. cleanupTempFiles() is called on every early-return
+    // error path so no orphaned files are left in /tmp.
+    const files = req.files as Express.Multer.File[] | undefined;
+
+    async function cleanupTempFiles(): Promise<void> {
+      if (!files?.length) return;
+      await Promise.allSettled(files.map((f) => fs.unlink(f.path).catch(() => {})));
+    }
+
     const targetPath = typeof req.body.path === "string" ? req.body.path : "";
 
     let absDir: string;
     try {
       absDir = resolveStoragePath(targetPath);
     } catch {
+      await cleanupTempFiles();
       res.status(400).json({ error: "Invalid path" });
       return;
     }
 
-    await fs.mkdir(absDir, { recursive: true });
+    try {
+      await fs.mkdir(absDir, { recursive: true });
+    } catch (err) {
+      await cleanupTempFiles();
+      throw err;
+    }
 
-    const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) {
       res.status(400).json({ error: "No files uploaded" });
       return;
@@ -379,14 +394,14 @@ router.post(
       }
     }
 
-    // Helper: move temp file to dest, cleaning up the temp on failure.
+    // Helper: move temp file to dest, cleaning up the temp on any failure.
     // fs.rename is atomic on the same filesystem; falls back to copy+unlink across devices.
     async function moveTempFile(tmpPath: string, destPath: string): Promise<void> {
       try {
         await fs.rename(tmpPath, destPath);
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException)?.code === "EXDEV") {
-          // Cross-device (e.g. /tmp and storage on different mounts)
+          // Cross-device (e.g. /tmp and storage on different mount points)
           await fs.copyFile(tmpPath, destPath);
           await fs.unlink(tmpPath).catch(() => {});
         } else {
@@ -429,9 +444,7 @@ router.post(
       );
     } catch (err) {
       // Clean up any temp files that weren't moved (e.g. files after the one that threw)
-      await Promise.allSettled(
-        files.map((f) => fs.unlink(f.path).catch(() => {}))
-      );
+      await cleanupTempFiles();
       throw err;
     }
 
