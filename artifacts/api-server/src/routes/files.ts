@@ -175,6 +175,11 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     locked.forEach((r) => lockedPaths.add(r.path));
   }
 
+  // Log that the user browsed this folder (fire-and-forget, skip root)
+  if (req.session.userId && currentFolderPath !== "") {
+    logFileAccess(req.session.userId, currentFolderPath, "inode/directory").catch(() => {});
+  }
+
   res.json({
     items: pageItems.map((item) => ({
       ...item,

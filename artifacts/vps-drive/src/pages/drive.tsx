@@ -712,7 +712,7 @@ export default function DrivePage() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} onRefresh={invalidate} />
+      <FilePreviewSheet file={previewItem} onClose={() => { setPreviewItem(null); setTimeout(fetchRecent, 500); }} onRefresh={invalidate} />
       {shareItem && (
         <ShareModal
           filePath={shareItem.path}
@@ -1086,7 +1086,7 @@ export default function DrivePage() {
                       if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
-                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
+                      else { window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank"); setTimeout(fetchRecent, 500); }
                     }}
                   >
                     {/* Selection checkbox */}
@@ -1221,7 +1221,7 @@ export default function DrivePage() {
                       if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
-                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
+                      else { window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank"); setTimeout(fetchRecent, 500); }
                     }}
                   >
                     {/* Checkbox */}
