@@ -978,7 +978,14 @@ export default function DrivePage() {
         )}
 
         {/* File grid */}
-        <div className="flex-1 overflow-auto p-5">
+        <div
+          className="flex-1 overflow-auto p-5"
+          onClick={(e) => {
+            if (selectedPaths.size === 0) return;
+            if ((e.target as HTMLElement).closest("[data-selection-item]")) return;
+            setSelectedPaths(new Set());
+          }}
+        >
           {/* New folder input row */}
           {newFolderMode && (
             <div className="mb-4 flex items-center gap-2 p-2 rounded-lg border border-primary/40 bg-card w-fit">
@@ -1024,6 +1031,7 @@ export default function DrivePage() {
                     onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
+                    data-selection-item
                     className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${selectedPaths.has(file.path) ? "border-primary bg-primary/10" : dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
@@ -1158,6 +1166,7 @@ export default function DrivePage() {
                     onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
+                    data-selection-item
                     className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
