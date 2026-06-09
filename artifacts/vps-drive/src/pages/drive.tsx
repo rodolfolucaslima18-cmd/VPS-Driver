@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search, Move, Copy
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -39,8 +39,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FolderPickerModal } from "@/components/FolderPickerModal";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -130,6 +132,9 @@ export default function DrivePage() {
   const [folderToSetPwd, setFolderToSetPwd] = useState<FileItem | null>(null);
   const [setPwdValue, setSetPwdValue] = useState("");
   const [setPwdLoading, setSetPwdLoading] = useState(false);
+  const [moveAction, setMoveAction] = useState<{ item: FileItem; mode: "move" | "copy" } | null>(null);
+  const [draggingItemPath, setDraggingItemPath] = useState<string | null>(null);
+  const [dragOverFolderPath, setDragOverFolderPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -357,6 +362,35 @@ export default function DrivePage() {
     });
   }, [doUploadWithPaths, toast]);
 
+  const doMoveOrCopy = useCallback(async (
+    mode: "move" | "copy",
+    sourcePath: string,
+    destDirPath: string,
+    itemName: string,
+  ) => {
+    const destPath = destDirPath ? `${destDirPath}/${itemName}` : itemName;
+    try {
+      const resp = await fetch(`${BASE_URL}/api/files/${mode}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourcePath, destPath }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
+      }
+      invalidate();
+      const dirLabel = destDirPath || "Início";
+      toast({
+        title: mode === "move" ? `Movido para "${dirLabel}"` : `Copiado para "${dirLabel}"`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: mode === "move" ? "Erro ao mover" : "Erro ao copiar", description: msg, variant: "destructive" });
+    }
+  }, [invalidate, toast]);
+
   // Keep stable refs pointing to the latest callbacks so native DOM listeners
   // never capture a stale closure.
   useEffect(() => { doUploadRef.current = doUpload; }, [doUpload]);
@@ -501,12 +535,18 @@ export default function DrivePage() {
     }
   }, [renamingPath, renamingValue, renameMutation, invalidate, toast]);
 
-  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    // Only show the upload overlay for files dragged from the OS, not internal item drags
+    if (!e.dataTransfer.types.includes("application/vps-drive-path")) setIsDragging(true);
+  };
   const onDragLeave = (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
 
   const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    // Internal item-to-folder drag is handled by the folder item's own onDrop handler
+    if (e.dataTransfer.types.includes("application/vps-drive-path")) return;
 
     const items = Array.from(e.dataTransfer.items ?? []);
     const hasFolder = items.some((item) => {
@@ -658,6 +698,20 @@ export default function DrivePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Move / Copy folder picker */}
+      <FolderPickerModal
+        open={!!moveAction}
+        onClose={() => setMoveAction(null)}
+        mode={moveAction?.mode ?? "move"}
+        sourcePath={moveAction?.item.path ?? ""}
+        itemName={moveAction?.item.name ?? ""}
+        onConfirm={(destDirPath) => {
+          if (!moveAction) return;
+          doMoveOrCopy(moveAction.mode, moveAction.item.path, destDirPath, moveAction.item.name);
+          setMoveAction(null);
+        }}
+      />
 
       {/* Hidden file inputs */}
       <input
@@ -861,7 +915,13 @@ export default function DrivePage() {
                 {displayedItems.map((file) => (
                   <div
                     key={file.path}
-                    className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
+                    draggable={renamingPath !== file.path}
+                    onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/vps-drive-path", file.path); setDraggingItemPath(file.path); }}
+                    onDragEnd={() => { setDraggingItemPath(null); setDragOverFolderPath(null); }}
+                    onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
+                    onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
+                    onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
+                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (file.type === "directory") openFolder(file as FileItem);
@@ -891,6 +951,14 @@ export default function DrivePage() {
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "move" })}>
+                          <Move className="w-3.5 h-3.5" />Mover para...
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "copy" })}>
+                          <Copy className="w-3.5 h-3.5" />Copiar para...
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>
@@ -961,7 +1029,13 @@ export default function DrivePage() {
                 {displayedItems.map((file, idx) => (
                   <div
                     key={file.path}
-                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
+                    draggable={renamingPath !== file.path}
+                    onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/vps-drive-path", file.path); setDraggingItemPath(file.path); }}
+                    onDragEnd={() => { setDraggingItemPath(null); setDragOverFolderPath(null); }}
+                    onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
+                    onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
+                    onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
+                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (file.type === "directory") openFolder(file as FileItem);
@@ -1028,6 +1102,14 @@ export default function DrivePage() {
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "move" })}>
+                          <Move className="w-3.5 h-3.5" />Mover para...
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "copy" })}>
+                          <Copy className="w-3.5 h-3.5" />Copiar para...
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>

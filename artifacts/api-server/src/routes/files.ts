@@ -806,6 +806,93 @@ router.post("/files/unlock-folder", requireAuth, async (req, res): Promise<void>
   res.json({ unlocked: true });
 });
 
+// POST /files/move — move a file or folder to a new location
+router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
+  const { sourcePath, destPath } = req.body as { sourcePath?: string; destPath?: string };
+  if (!sourcePath || !destPath) {
+    res.status(400).json({ error: "Missing sourcePath or destPath" });
+    return;
+  }
+
+  let srcAbs: string;
+  let dstAbs: string;
+  try {
+    srcAbs = resolveStoragePath(sourcePath);
+    dstAbs = resolveStoragePath(destPath);
+  } catch {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(srcAbs)) {
+    res.status(404).json({ error: "Source not found" });
+    return;
+  }
+  if (existsSync(dstAbs)) {
+    res.status(400).json({ error: "Destination already exists" });
+    return;
+  }
+  if (dstAbs === srcAbs || dstAbs.startsWith(srcAbs + path.sep)) {
+    res.status(400).json({ error: "Cannot move a folder into itself" });
+    return;
+  }
+
+  await fs.mkdir(path.dirname(dstAbs), { recursive: true });
+  await fs.rename(srcAbs, dstAbs);
+
+  const stats = await fs.stat(dstAbs);
+  res.json(buildFileItem(dstAbs, stats));
+});
+
+// POST /files/copy — recursively copy a file or folder
+router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
+  const { sourcePath, destPath } = req.body as { sourcePath?: string; destPath?: string };
+  if (!sourcePath || !destPath) {
+    res.status(400).json({ error: "Missing sourcePath or destPath" });
+    return;
+  }
+
+  let srcAbs: string;
+  let dstAbs: string;
+  try {
+    srcAbs = resolveStoragePath(sourcePath);
+    dstAbs = resolveStoragePath(destPath);
+  } catch {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(srcAbs)) {
+    res.status(404).json({ error: "Source not found" });
+    return;
+  }
+  if (existsSync(dstAbs)) {
+    res.status(400).json({ error: "Destination already exists" });
+    return;
+  }
+  if (dstAbs === srcAbs || dstAbs.startsWith(srcAbs + path.sep)) {
+    res.status(400).json({ error: "Cannot copy a folder into itself" });
+    return;
+  }
+
+  async function copyRecursive(src: string, dst: string): Promise<void> {
+    const stat = await fs.stat(src);
+    if (stat.isDirectory()) {
+      await fs.mkdir(dst, { recursive: true });
+      const entries = await fs.readdir(src, { withFileTypes: true });
+      await Promise.all(entries.map((e) => copyRecursive(path.join(src, e.name), path.join(dst, e.name))));
+    } else {
+      await fs.mkdir(path.dirname(dst), { recursive: true });
+      await fs.copyFile(src, dst);
+    }
+  }
+
+  await copyRecursive(srcAbs, dstAbs);
+
+  const stats = await fs.stat(dstAbs);
+  res.json(buildFileItem(dstAbs, stats));
+});
+
 // GET /files/stats — storage statistics
 router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
   const { totalFiles, totalSize, totalDirectories, allFiles } =
