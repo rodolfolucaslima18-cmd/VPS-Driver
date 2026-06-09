@@ -85,6 +85,29 @@ ensureStorageRoot().catch((err) => {
   console.error("Failed to create storage root:", err);
 });
 
+// On startup, remove any stale temp files left by interrupted uploads (older than 1 hour)
+(async () => {
+  try {
+    const entries = await fs.readdir(UPLOAD_TMP_DIR).catch(() => [] as string[]);
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    await Promise.all(
+      entries.map(async (name) => {
+        const filePath = path.join(UPLOAD_TMP_DIR, name);
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.mtimeMs < oneHourAgo) {
+            await fs.unlink(filePath);
+          }
+        } catch {
+          // Non-critical — skip files that can't be accessed or removed
+        }
+      })
+    );
+  } catch {
+    // Non-critical — if the directory doesn't exist yet, nothing to clean
+  }
+})();
+
 // GET /files — list directory contents (SQL-index backed, O(1) on 1000+ files)
 router.get("/files", requireAuth, async (req, res): Promise<void> => {
   const parsed = ListFilesQueryParams.safeParse(req.query);
