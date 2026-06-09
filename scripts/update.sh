@@ -80,7 +80,15 @@ TMPDIR_UPDATE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
 
 echo "  Clonando de $GITHUB_REPO..."
-git clone --depth=1 "$GITHUB_REPO" "$TMPDIR_UPDATE" 2>&1 | grep -v "^$" || true
+if ! git clone --depth=1 "$GITHUB_REPO" "$TMPDIR_UPDATE" 2>&1; then
+  error "Falha ao clonar repositório do GitHub. Verifique a conectividade e tente novamente."
+fi
+
+# Validar que o clone trouxe o projeto completo antes de sincronizar
+if [[ ! -f "$TMPDIR_UPDATE/package.json" ]] || [[ ! -d "$TMPDIR_UPDATE/artifacts" ]]; then
+  error "Clone incompleto — package.json ou pasta artifacts não encontrados em $TMPDIR_UPDATE. Abortando sem modificar a instalação."
+fi
+
 ok "Código obtido do GitHub"
 
 # ── Copiar arquivos preservando .env e dados ─────────────────
@@ -202,6 +210,7 @@ ok "Servidor compilado"
 NGINX_CONF="/etc/nginx/sites-available/vps-drive"
 if [[ -f "$NGINX_CONF" ]] && ! grep -q "no-store" "$NGINX_CONF"; then
   step "Nginx: adicionando Cache-Control para index.html..."
+  cp "$NGINX_CONF" "${NGINX_CONF}.bak"
   TMP_PY=$(mktemp)
   cat > "$TMP_PY" << 'PYEOF'
 import sys
