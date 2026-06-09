@@ -176,9 +176,69 @@ export default function DrivePage() {
     }
   }, [newFolderMode]);
 
+  // Batch upload — used for folders, drag-and-drop with subfolders, and large file selections.
+  // Defined first so doUpload can reference it.
+  const doUploadWithPaths = useCallback(async (
+    entries: Array<{file: File; relativePath: string}>,
+    onDone?: () => void,
+  ) => {
+    if (entries.length === 0) return;
+    const total = entries.length;
+    const BATCH = 50;
+
+    if (total > 1000) {
+      toast({
+        title: "Upload grande detectado",
+        description: `Enviando ${total.toLocaleString("pt-BR")} arquivos. Isso pode demorar alguns minutos.`,
+      });
+    }
+
+    try {
+      for (let i = 0; i < entries.length; i += BATCH) {
+        const batch = entries.slice(i, i + BATCH);
+        const sent = Math.min(i + BATCH, total);
+        const pct = Math.round((sent / total) * 100);
+        setUploadProgress(
+          `Enviando ${sent.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} arquivo${total > 1 ? "s" : ""} (${pct}%)…`
+        );
+        const formData = new FormData();
+        if (currentPath) formData.append("path", currentPath);
+        batch.forEach(({ file }) => formData.append("files", file));
+        formData.append("relativePaths", JSON.stringify(batch.map((e) => e.relativePath)));
+        const resp = await fetch(`${BASE_URL}/api/files/upload`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error((data as {error?: string}).error ?? `HTTP ${resp.status}`);
+        }
+      }
+      invalidate();
+      toast({ title: "Envio concluído", description: `${total.toLocaleString("pt-BR")} arquivo(s) enviado(s).` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
+    } finally {
+      setUploadProgress(null);
+      onDone?.();
+    }
+  }, [currentPath, invalidate, toast]);
+
   const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList);
+
+    // For > 20 files use the same batched path to avoid one huge request
+    if (files.length > 20) {
+      const entries = files.map((f) => ({ file: f, relativePath: f.name }));
+      await doUploadWithPaths(entries, () => {
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      });
+      return;
+    }
+
     setUploadProgress(`Enviando ${files.length} arquivo${files.length > 1 ? "s" : ""}…`);
     try {
       await uploadMutation.mutateAsync({
@@ -196,41 +256,7 @@ export default function DrivePage() {
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  }, [currentPath, uploadMutation, invalidate, toast]);
-
-  const doUploadWithPaths = useCallback(async (entries: Array<{file: File; relativePath: string}>) => {
-    if (entries.length === 0) return;
-    const total = entries.length;
-    const BATCH = 20;
-    try {
-      for (let i = 0; i < entries.length; i += BATCH) {
-        const batch = entries.slice(i, i + BATCH);
-        const sent = Math.min(i + BATCH, total);
-        setUploadProgress(`Enviando ${sent} de ${total} arquivo${total > 1 ? "s" : ""}…`);
-        const formData = new FormData();
-        if (currentPath) formData.append("path", currentPath);
-        batch.forEach(({ file }) => formData.append("files", file));
-        formData.append("relativePaths", JSON.stringify(batch.map((e) => e.relativePath)));
-        const resp = await fetch(`${BASE_URL}/api/files/upload`, {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        });
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
-          throw new Error((data as {error?: string}).error ?? `HTTP ${resp.status}`);
-        }
-      }
-      invalidate();
-      toast({ title: "Envio concluído", description: `${total} arquivo(s) enviado(s).` });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
-    } finally {
-      setUploadProgress(null);
-      if (folderInputRef.current) folderInputRef.current.value = "";
-    }
-  }, [currentPath, invalidate, toast]);
+  }, [currentPath, uploadMutation, invalidate, toast, doUploadWithPaths]);
 
   const doUploadFolder = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -238,7 +264,9 @@ export default function DrivePage() {
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    await doUploadWithPaths(entries);
+    await doUploadWithPaths(entries, () => {
+      if (folderInputRef.current) folderInputRef.current.value = "";
+    });
   }, [doUploadWithPaths]);
 
   const doMkdir = useCallback(async () => {
