@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -165,13 +165,24 @@ export default function DrivePage() {
   const [isLoadingMore,  setIsLoadingMore]  = useState(false);
   const [hasMore,        setHasMore]        = useState(false);
 
-  const fetchFilesPage = useCallback(async (path: string, page: number) => {
+  // ── Search state ──────────────────────────────────────────────────────────
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Debounce searchInput → searchQuery (300ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const fetchFilesPage = useCallback(async (path: string, page: number, search = "") => {
     const isFirst = page === 1;
     if (isFirst) setIsLoadingPage1(true);
     else         setIsLoadingMore(true);
     try {
       const params = new URLSearchParams({ limit: String(PAGE_LIMIT), page: String(page) });
-      if (path) params.append("path", path);
+      if (path)   params.append("path", path);
+      if (search) params.append("search", search);
       const resp = await fetch(`${BASE_URL}/api/files?${params}`, { credentials: "include" });
       if (!resp.ok) return;
       const data = (await resp.json()) as {
@@ -190,8 +201,10 @@ export default function DrivePage() {
     }
   }, []);
 
-  // Fetch page 1 whenever the current folder changes
+  // Fetch page 1 whenever the current folder changes — also clear search
   useEffect(() => {
+    setSearchInput("");
+    setSearchQuery("");
     setDisplayedItems([]);
     setCurrentPage(1);
     setHasMore(false);
@@ -199,15 +212,25 @@ export default function DrivePage() {
     fetchFilesPage(currentPath, 1);
   }, [currentPath, fetchFilesPage]);
 
+  // Re-fetch page 1 whenever searchQuery changes (after debounce)
+  useEffect(() => {
+    setDisplayedItems([]);
+    setCurrentPage(1);
+    setHasMore(false);
+    setTotalItems(0);
+    fetchFilesPage(currentPath, 1, searchQuery);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
   const invalidate = useCallback(() => {
     // Reset pagination and reload page 1 for current folder
     setDisplayedItems([]);
     setCurrentPage(1);
     setHasMore(false);
     setTotalItems(0);
-    fetchFilesPage(currentPath, 1);
+    fetchFilesPage(currentPath, 1, searchQuery);
     queryClient.invalidateQueries({ queryKey: getGetStorageStatsQueryKey() });
-  }, [queryClient, currentPath, fetchFilesPage]);
+  }, [queryClient, currentPath, fetchFilesPage, searchQuery]);
 
   // Focus rename input when rename mode activates
   useEffect(() => {
@@ -688,7 +711,27 @@ export default function DrivePage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 ml-4">
+          {/* Search input */}
+          <div className="relative mx-3 flex-1 max-w-xs hidden sm:block">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Buscar nesta pasta…"
+              className="w-full h-8 pl-8 pr-7 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {searchInput && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setSearchInput("")}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
             {uploadProgress && (
               <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>
             )}
@@ -849,7 +892,7 @@ export default function DrivePage() {
                   <p className="text-xs text-muted-foreground">
                     Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
                   </p>
-                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1)} disabled={isLoadingMore}>
+                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1, searchQuery)} disabled={isLoadingMore}>
                     {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
                   </Button>
                 </div>
@@ -953,7 +996,7 @@ export default function DrivePage() {
                   <p className="text-xs text-muted-foreground">
                     Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
                   </p>
-                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1)} disabled={isLoadingMore}>
+                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1, searchQuery)} disabled={isLoadingMore}>
                     {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
                   </Button>
                 </div>
@@ -962,23 +1005,41 @@ export default function DrivePage() {
           )
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-3 text-muted-foreground min-h-[300px]">
-              <div className="p-5 rounded-full bg-accent/50">
-                <HardDrive className="w-10 h-10 opacity-40" />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">Esta pasta está vazia</p>
-                <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
-                  <FolderUp className="w-3.5 h-3.5 mr-1.5" />
-                  Enviar pasta
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="w-3.5 h-3.5 mr-1.5" />
-                  Enviar arquivos
-                </Button>
-              </div>
+              {searchQuery ? (
+                <>
+                  <div className="p-5 rounded-full bg-accent/50">
+                    <Search className="w-10 h-10 opacity-40" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Nenhum resultado encontrado</p>
+                    <p className="text-sm mt-0.5">Nenhum arquivo corresponde a "{searchQuery}"</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setSearchInput("")}>
+                    <X className="w-3.5 h-3.5 mr-1.5" />
+                    Limpar busca
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="p-5 rounded-full bg-accent/50">
+                    <HardDrive className="w-10 h-10 opacity-40" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Esta pasta está vazia</p>
+                    <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
+                      <FolderUp className="w-3.5 h-3.5 mr-1.5" />
+                      Enviar pasta
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                      <Upload className="w-3.5 h-3.5 mr-1.5" />
+                      Enviar arquivos
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

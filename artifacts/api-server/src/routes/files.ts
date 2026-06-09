@@ -99,9 +99,14 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
+  // Optional search filter (case-insensitive substring match on filename)
+  const searchRaw = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const searchLC  = searchRaw.toLowerCase();
+
   // Sort using Dirent.isDirectory() — no stat needed to order dirs-first alphabetically
   const visible = entries
     .filter((e) => !e.name.startsWith("."))
+    .filter((e) => !searchLC || e.name.toLowerCase().includes(searchLC))
     .sort((a, b) => {
       const aDir = a.isDirectory() ? 0 : 1;
       const bDir = b.isDirectory() ? 0 : 1;
