@@ -195,6 +195,12 @@ if [ $_fe_ec -ne 0 ]; then
 fi
 ok "Frontend compilado"
 
+# Corrigir permissões do dist do frontend para o nginx (www-data)
+if [[ -d "$INSTALL_DIR/artifacts/vps-drive/dist" ]]; then
+  chown -R www-data:www-data "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
+  chmod -R 755 "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
+fi
+
 # ── Build backend ─────────────────────────────────────────────
 step "Compilando servidor..."
 set +e
