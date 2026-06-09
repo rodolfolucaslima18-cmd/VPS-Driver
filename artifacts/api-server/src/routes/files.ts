@@ -316,6 +316,12 @@ router.post(
       })
     );
 
+    // Fire-and-forget: log each uploaded file as recently accessed
+    const userId = req.session.userId!;
+    for (const uploadedFile of uploaded) {
+      logFileAccess(userId, uploadedFile.path, uploadedFile.mimeType ?? undefined).catch(() => {});
+    }
+
     res.json(uploaded);
   }
 );

@@ -155,6 +155,7 @@ export default function DrivePage() {
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -897,6 +898,8 @@ export default function DrivePage() {
                       <button
                         key={item.path}
                         onClick={() => {
+                          setHighlightedPath(item.path);
+                          setTimeout(() => setHighlightedPath((p) => p === item.path ? null : p), 4000);
                           setCurrentPath(parentDir);
                           if (isPreviewable(item.mimeType) || isOfficeFile({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem)) {
                             setPreviewItem({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem);
@@ -1077,7 +1080,7 @@ export default function DrivePage() {
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
                     data-selection-item
-                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${selectedPaths.has(file.path) ? "border-primary bg-primary/10" : dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${highlightedPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/40" : selectedPaths.has(file.path) ? "border-primary bg-primary/10" : dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
@@ -1212,7 +1215,7 @@ export default function DrivePage() {
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
                     data-selection-item
-                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${highlightedPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary/60" : selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
