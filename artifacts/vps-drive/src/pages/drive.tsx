@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List
+  LayoutGrid, List, Lock, KeyRound, ShieldOff
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -28,6 +28,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -43,6 +51,7 @@ type FileItem = {
   size: number;
   modifiedAt: string;
   mimeType: string | null;
+  hasPassword?: boolean;
 };
 
 const IMAGE_TYPES = ["image/jpeg","image/png","image/gif","image/webp","image/svg+xml","image/bmp"];
@@ -114,6 +123,13 @@ export default function DrivePage() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
+  const [folderToUnlock, setFolderToUnlock] = useState<FileItem | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [folderToSetPwd, setFolderToSetPwd] = useState<FileItem | null>(null);
+  const [setPwdValue, setSetPwdValue] = useState("");
+  const [setPwdLoading, setSetPwdLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -259,6 +275,65 @@ export default function DrivePage() {
     }
   }, [pendingDeleteItem, deleteMutation, invalidate, toast]);
 
+  const openFolder = useCallback((item: FileItem) => {
+    if (item.hasPassword && !isMaster) {
+      setFolderToUnlock(item);
+      setUnlockPassword("");
+      setUnlockError(null);
+    } else {
+      setCurrentPath(item.path);
+    }
+  }, [isMaster]);
+
+  const submitUnlock = useCallback(async () => {
+    if (!folderToUnlock || !unlockPassword) return;
+    setUnlockLoading(true);
+    setUnlockError(null);
+    try {
+      const res = await fetch(`${BASE_URL}/api/files/unlock-folder`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: folderToUnlock.path, password: unlockPassword }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const code = (body as { error?: string }).error;
+        setUnlockError(code === "WRONG_PASSWORD" ? "Senha incorreta." : "Erro ao verificar senha.");
+        return;
+      }
+      setCurrentPath(folderToUnlock.path);
+      setFolderToUnlock(null);
+      setUnlockPassword("");
+    } catch {
+      setUnlockError("Erro de conexão.");
+    } finally {
+      setUnlockLoading(false);
+    }
+  }, [folderToUnlock, unlockPassword]);
+
+  const submitSetPassword = useCallback(async () => {
+    if (!folderToSetPwd) return;
+    setSetPwdLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/files/folder-password`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: folderToSetPwd.path, password: setPwdValue || null }),
+      });
+      if (!res.ok) throw new Error();
+      invalidate();
+      toast({ title: setPwdValue ? "Senha definida com sucesso." : "Senha removida com sucesso." });
+      setFolderToSetPwd(null);
+      setSetPwdValue("");
+    } catch {
+      toast({ title: "Erro ao salvar senha.", variant: "destructive" });
+    } finally {
+      setSetPwdLoading(false);
+    }
+  }, [folderToSetPwd, setPwdValue, invalidate, toast]);
+
   const doRename = useCallback(async () => {
     if (!renamingPath) return;
     const newName = renamingValue.trim();
@@ -345,7 +420,7 @@ export default function DrivePage() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} />
+      <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} onRefresh={invalidate} />
       {shareItem && (
         <ShareModal
           filePath={shareItem.path}
@@ -353,6 +428,67 @@ export default function DrivePage() {
           onClose={() => setShareItem(null)}
         />
       )}
+
+      {/* Folder unlock dialog */}
+      <Dialog open={!!folderToUnlock} onOpenChange={(open) => { if (!open) { setFolderToUnlock(null); setUnlockPassword(""); setUnlockError(null); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-primary" />
+              Pasta protegida
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            A pasta <strong>"{folderToUnlock?.name}"</strong> está protegida por senha.
+          </p>
+          <Input
+            type="password"
+            placeholder="Digite a senha"
+            value={unlockPassword}
+            onChange={(e) => { setUnlockPassword(e.target.value); setUnlockError(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") submitUnlock(); }}
+            autoFocus
+          />
+          {unlockError && <p className="text-xs text-destructive">{unlockError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderToUnlock(null)}>Cancelar</Button>
+            <Button onClick={submitUnlock} disabled={!unlockPassword || unlockLoading}>
+              {unlockLoading ? <span className="flex items-center gap-2"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Verificando…</span> : "Abrir pasta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set folder password dialog (master only) */}
+      <Dialog open={!!folderToSetPwd} onOpenChange={(open) => { if (!open) { setFolderToSetPwd(null); setSetPwdValue(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-primary" />
+              {folderToSetPwd?.hasPassword ? "Alterar/remover senha" : "Definir senha da pasta"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Pasta: <strong>"{folderToSetPwd?.name}"</strong>
+            {folderToSetPwd?.hasPassword && <span className="ml-2 text-xs text-amber-500">(já possui senha)</span>}
+          </p>
+          <Input
+            type="password"
+            placeholder={folderToSetPwd?.hasPassword ? "Nova senha (vazio para remover)" : "Senha da pasta"}
+            value={setPwdValue}
+            onChange={(e) => setSetPwdValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitSetPassword(); }}
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">Deixe em branco para remover a senha da pasta.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderToSetPwd(null)}>Cancelar</Button>
+            <Button onClick={submitSetPassword} disabled={setPwdLoading}>
+              {setPwdLoading ? "Salvando…" : setPwdValue ? "Definir senha" : "Remover senha"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!pendingDeleteItem} onOpenChange={(open) => { if (!open) setPendingDeleteItem(null); }}>
@@ -561,7 +697,7 @@ export default function DrivePage() {
                     className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
-                      if (file.type === "directory") setCurrentPath(file.path);
+                      if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
                       else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
@@ -576,10 +712,16 @@ export default function DrivePage() {
                           <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-[140px]">
+                      <DropdownMenuContent align="end" className="min-w-[160px]">
                         {file.type === "file" && (
                           <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
                             <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
+                        {file.type === "directory" && isMaster && (
+                          <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
+                            {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
+                            {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
@@ -592,7 +734,12 @@ export default function DrivePage() {
                     </DropdownMenu>
 
                     {file.type === "directory" ? (
-                      <Folder className="w-11 h-11 text-primary mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
+                      <div className="relative mb-2.5">
+                        <Folder className="w-11 h-11 text-primary group-hover:scale-105 transition-transform" strokeWidth={1.5} />
+                        {(file as FileItem).hasPassword && (
+                          <Lock className="absolute -bottom-1 -right-1 w-4 h-4 text-amber-500 bg-card rounded-full p-0.5" />
+                        )}
+                      </div>
                     ) : (
                       <File className="w-11 h-11 text-muted-foreground mb-2.5 group-hover:scale-105 transition-transform" strokeWidth={1.5} />
                     )}
@@ -638,14 +785,19 @@ export default function DrivePage() {
                     className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
-                      if (file.type === "directory") setCurrentPath(file.path);
+                      if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
                       else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
                   >
                     {/* Icon */}
                     {file.type === "directory" ? (
-                      <Folder className="w-4 h-4 text-primary shrink-0" strokeWidth={1.5} />
+                      <div className="relative shrink-0">
+                        <Folder className="w-4 h-4 text-primary" strokeWidth={1.5} />
+                        {(file as FileItem).hasPassword && (
+                          <Lock className="absolute -bottom-1 -right-1 w-2.5 h-2.5 text-amber-500" />
+                        )}
+                      </div>
                     ) : (
                       <File className="w-4 h-4 text-muted-foreground shrink-0" strokeWidth={1.5} />
                     )}
@@ -685,10 +837,16 @@ export default function DrivePage() {
                           <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-[140px]">
+                      <DropdownMenuContent align="end" className="min-w-[160px]">
                         {file.type === "file" && (
                           <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
                             <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
+                        {file.type === "directory" && isMaster && (
+                          <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
+                            {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
+                            {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>

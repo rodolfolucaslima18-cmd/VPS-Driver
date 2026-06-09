@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Download, File, AlertCircle, ExternalLink, Loader2, Pencil } from "lucide-react";
+import { Download, File, AlertCircle, Loader2, Pencil } from "lucide-react";
 import DOMPurify from "dompurify";
 import {
   Sheet,
@@ -29,6 +29,7 @@ interface FileItem {
 interface FilePreviewSheetProps {
   file: FileItem | null;
   onClose: () => void;
+  onRefresh?: () => void;
 }
 
 function formatSize(bytes: number): string {
@@ -223,13 +224,7 @@ function XlsxViewer({ file }: { file: FileItem }) {
 
 // ── PPTX / download-only fallback ─────────────────────────────────────────────
 
-function PptxFallback({
-  file,
-  onOpenMicrosoft,
-}: {
-  file: FileItem;
-  onOpenMicrosoft?: () => void;
-}) {
+function PptxFallback({ file }: { file: FileItem }) {
   const downloadUrl = `${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`;
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-5 text-muted-foreground py-8">
@@ -244,23 +239,15 @@ function PptxFallback({
         <p className="font-medium text-foreground">Apresentações PowerPoint</p>
         <p className="text-muted-foreground leading-relaxed">
           Arquivos PPTX/PPT não podem ser renderizados diretamente no navegador.
-          Abra online ou baixe o arquivo.
+          Baixe o arquivo para abrir localmente.
         </p>
       </div>
-      <div className="flex gap-2 flex-wrap justify-center">
-        {onOpenMicrosoft && (
-          <Button variant="default" onClick={onOpenMicrosoft}>
-            <ExternalLink className="w-4 h-4 mr-2" />
-            PowerPoint Online
-          </Button>
-        )}
-        <Button variant="outline" asChild>
-          <a href={downloadUrl} download={file.name}>
-            <Download className="w-4 h-4 mr-2" />
-            Baixar
-          </a>
-        </Button>
-      </div>
+      <Button variant="outline" asChild>
+        <a href={downloadUrl} download={file.name}>
+          <Download className="w-4 h-4 mr-2" />
+          Baixar
+        </a>
+      </Button>
     </div>
   );
 }
@@ -268,15 +255,9 @@ function PptxFallback({
 // ── DOC Viewer (mammoth) ──────────────────────────────────────────────────────
 // Handles .docx and .doc via server-side mammoth. Binary BIFF .doc files
 // return a "body element" error; in that case a friendly fallback is shown
-// with "Abrir no Word Online" + download buttons.
+// with a download button.
 
-function DocHtmlViewer({
-  file,
-  onTryMicrosoftOnline,
-}: {
-  file: FileItem;
-  onTryMicrosoftOnline?: () => void;
-}) {
+function DocHtmlViewer({ file }: { file: FileItem }) {
   const [state, setState] = useState<"loading" | "done" | "error">("loading");
   const [html, setHtml] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -324,23 +305,15 @@ function DocHtmlViewer({
             <p className="font-medium text-foreground">Formato .doc legado</p>
             <p className="text-sm leading-relaxed">
               Este arquivo está no formato binário antigo do Word e não pode ser
-              visualizado diretamente. Abra-o no Word Online ou baixe-o.
+              visualizado diretamente. Baixe-o para abrir localmente.
             </p>
           </div>
-          <div className="flex gap-2 flex-wrap justify-center">
-            {onTryMicrosoftOnline && (
-              <Button variant="default" onClick={onTryMicrosoftOnline}>
-                <ExternalLink className="w-4 h-4 mr-2" />
-                Abrir no Word Online
-              </Button>
-            )}
-            <Button variant="outline" asChild>
-              <a href={downloadUrl} download={file.name}>
-                <Download className="w-4 h-4 mr-2" />
-                Baixar
-              </a>
-            </Button>
-          </div>
+          <Button variant="outline" asChild>
+            <a href={downloadUrl} download={file.name}>
+              <Download className="w-4 h-4 mr-2" />
+              Baixar
+            </a>
+          </Button>
         </div>
       );
     }
@@ -551,12 +524,11 @@ function TextPreview({ file }: { file: FileItem }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
+export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetProps) {
   const isOpen = file !== null;
   const officeKind = file ? getOfficeKind(file) : null;
   const kind = file && !officeKind ? getPreviewKind(file.mimeType) : "unsupported";
 
-  const [tokenLoadingFor, setTokenLoadingFor] = useState<"microsoft" | "google" | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editSession, setEditSession] = useState<EditSession | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -582,35 +554,6 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
       setEditLoading(false);
     }
   }, [file, officeKind]);
-
-  const openInService = useCallback(
-    async (service: "microsoft" | "google") => {
-      if (!file || !officeKind) return;
-      setTokenLoadingFor(service);
-      try {
-        const res = await fetch(
-          `${BASE_URL}/api/files/token?path=${encodeURIComponent(file.path)}`,
-          { credentials: "include" }
-        );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { error?: string }).error ?? "Falha ao gerar link");
-        }
-        const data = (await res.json()) as { token: string; publicUrl: string };
-        const encoded = encodeURIComponent(data.publicUrl);
-        const url =
-          service === "microsoft"
-            ? `https://view.officeapps.live.com/op/view.aspx?src=${encoded}`
-            : `https://docs.google.com/viewer?url=${encoded}`;
-        window.open(url, "_blank", "noopener,noreferrer");
-      } catch {
-        // silently ignore — the download button is always available as fallback
-      } finally {
-        setTokenLoadingFor(null);
-      }
-    },
-    [file, officeKind]
-  );
 
   const previewUrl = file
     ? `${BASE_URL}/api/files/preview?path=${encodeURIComponent(file.path)}`
@@ -654,40 +597,6 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
                       Editar
                     </Button>
                   )}
-                  {officeKind && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2.5 gap-1.5 text-xs"
-                        onClick={() => openInService("microsoft")}
-                        disabled={tokenLoadingFor !== null}
-                        title={getMsLabel(officeKind)}
-                      >
-                        {tokenLoadingFor === "microsoft" ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <ExternalLink className="w-3 h-3" />
-                        )}
-                        {getMsLabel(officeKind)}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2.5 gap-1.5 text-xs"
-                        onClick={() => openInService("google")}
-                        disabled={tokenLoadingFor !== null}
-                        title="Visualização apenas — edições não são salvas no VPS Drive"
-                      >
-                        {tokenLoadingFor === "google" ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <ExternalLink className="w-3 h-3" />
-                        )}
-                        Google Viewer
-                      </Button>
-                    </>
-                  )}
                   <Button size="sm" variant="outline" className="h-8 px-2.5 gap-1.5 text-xs shrink-0" asChild>
                     <a href={downloadUrl} download={file.name}>
                       <Download className="w-3 h-3" />
@@ -700,19 +609,9 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
-              {officeKind === "doc" && (
-                <DocHtmlViewer
-                  file={file}
-                  onTryMicrosoftOnline={() => openInService("microsoft")}
-                />
-              )}
+              {officeKind === "doc" && <DocHtmlViewer file={file} />}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
-              {officeKind === "pptx" && (
-                <PptxFallback
-                  file={file}
-                  onOpenMicrosoft={() => openInService("microsoft")}
-                />
-              )}
+              {officeKind === "pptx" && <PptxFallback file={file} />}
 
               {!officeKind && kind === "image" && (
                 <div className="flex items-center justify-center flex-1 bg-muted/40 rounded-lg overflow-hidden">
@@ -773,7 +672,7 @@ export function FilePreviewSheet({ file, onClose }: FilePreviewSheetProps) {
     </Sheet>
 
     {/* OnlyOffice Editor — fullscreen dialog */}
-    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) { setIsEditorOpen(false); setEditSession(null); } }}>
+    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) { setIsEditorOpen(false); setEditSession(null); onRefresh?.(); } }}>
       <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col">
         {editSession && (
           <OnlyOfficeEditor

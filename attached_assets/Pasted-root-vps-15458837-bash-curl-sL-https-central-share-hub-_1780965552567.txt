@@ -1,0 +1,72 @@
+root@vps-15458837:~# bash <(curl -sL https://central-share-hub.replit.app/api/download/update.sh)
+
+╔══════════════════════════════════════╗
+║       VPS Drive — Atualização        ║
+╚══════════════════════════════════════╝
+
+
+▶ Localizando instalação do VPS Drive...
+✓ Instalação encontrada em /opt/vps-drive
+✓ Configuração carregada (porta: 5000)
+
+▶ Baixando código atualizado...
+  Baixando de https://central-share-hub.replit.app...
+✓ Código baixado e extraído
+
+▶ Aplicando atualização (preservando .env e /data)...
+✓ Código atualizado
+
+▶ Verificando pnpm...
+✓ pnpm 10.34.1
+
+▶ Instalando dependências...
+
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+. preinstall: Done
+Done in 1.3s using pnpm v10.34.1
+✓ Dependências instaladas
+
+▶ Aplicando schema do banco de dados...
+Reading config file '/opt/vps-drive/lib/db/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] Pulling schema from database...
+[✓] Pulling schema from database...
+[✓] Changes applied
+✓ Schema aplicado
+
+▶ Compilando frontend...
+dist/public/index.html                         1.37 kB │ gzip:   0.54 kB
+dist/public/assets/index-B128vHp9.css        107.59 kB │ gzip:  17.40 kB
+dist/public/assets/docx-preview-BOcF7yc0.js  172.23 kB │ gzip:  50.39 kB
+dist/public/assets/xlsx-CNerDvZX.js          429.19 kB │ gzip: 142.94 kB
+dist/public/assets/index-klA_l6HF.js         489.75 kB │ gzip: 153.17 kB
+✓ built in 4.30s
+✓ Frontend compilado
+
+▶ Compilando servidor...
+  dist/pino-pretty.mjs.map           204.0kb
+  dist/thread-stream-worker.mjs.map   12.0kb
+
+⚡ Done in 448ms
+✓ Servidor compilado
+
+▶ Reiniciando servidor (PM2)...
+[PM2] Applying action restartProcessId on app [vps-drive-api](ids: [ 0 ])
+[PM2] [vps-drive-api](0) ✓
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ vps-drive-api    │ default     │ 0.0.0   │ fork    │ 20598    │ 0s     │ 14   │ online    │ 0%       │ 27.8mb   │ root     │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+✓ vps-drive-api reiniciado
+
+▶ Verificando servidor...
+  Aguardando reinicialização...
+✓ Servidor respondendo: http://localhost:5000/api/healthz → HTTP 200
+
+╔══════════════════════════════════════════════╗
+║     ✅  Atualização concluída com sucesso!    ║
+╚══════════════════════════════════════════════╝
+
+  O VPS Drive foi atualizado e está rodando normalmente.
+  Para verificar logs: pm2 logs vps-drive-api

@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
-import { eq, lt } from "drizzle-orm";
-import { db, fileTokensTable } from "@workspace/db";
+import { eq, lt, inArray } from "drizzle-orm";
+import { db, fileTokensTable, folderPasswordsTable } from "@workspace/db";
 import {
   STORAGE_ROOT,
   ensureStorageRoot,
@@ -14,7 +14,8 @@ import {
   getStorageStats,
   getMimeType,
 } from "../lib/storage";
-import { requireAuth } from "../middlewares/requireAuth";
+import { requireAuth, requireMaster } from "../middlewares/requireAuth";
+import { hashPassword, verifyPassword } from "../lib/auth";
 import {
   ListFilesQueryParams,
   DeleteItemQueryParams,
@@ -91,15 +92,48 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
       })
   );
 
-  const validItems = items.filter(Boolean);
+  const validItems = items.filter(Boolean) as NonNullable<(typeof items)[0]>[];
+
+  // Check if the current path itself is locked (non-master users)
+  const currentFolderPath = parsed.data.path ?? "";
+  if (req.session.role !== "master" && currentFolderPath !== "") {
+    const [lockRow] = await db
+      .select({ path: folderPasswordsTable.path })
+      .from(folderPasswordsTable)
+      .where(eq(folderPasswordsTable.path, currentFolderPath))
+      .limit(1);
+    if (lockRow) {
+      const unlocked = req.session.unlockedFolders ?? [];
+      if (!unlocked.includes(currentFolderPath)) {
+        res.status(403).json({ error: "FOLDER_LOCKED", message: "Esta pasta requer senha." });
+        return;
+      }
+    }
+  }
+
+  // Enrich directory items with hasPassword flag
+  const dirPaths = validItems.filter((i) => i.type === "directory").map((i) => i.path);
+  const lockedPaths = new Set<string>();
+  if (dirPaths.length > 0) {
+    const locked = await db
+      .select({ path: folderPasswordsTable.path })
+      .from(folderPasswordsTable)
+      .where(inArray(folderPasswordsTable.path, dirPaths));
+    locked.forEach((r) => lockedPaths.add(r.path));
+  }
+
   // Directories first, then files, both sorted by name
   validItems.sort((a, b) => {
-    if (!a || !b) return 0;
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 
-  res.json(validItems.filter(Boolean));
+  res.json(
+    validItems.map((item) => ({
+      ...item,
+      hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
+    }))
+  );
 });
 
 // GET /files/download — download a file
@@ -695,6 +729,58 @@ router.post("/files/onlyoffice/callback", express.json(), async (req, res): Prom
   // status=1: being edited; status=4|6: closed without changes — nothing to do
 
   res.json({ error: 0 });
+});
+
+// POST /files/folder-password — set or remove a folder password (master only)
+router.post("/files/folder-password", requireMaster, async (req, res): Promise<void> => {
+  const { path: folderPath, password } = req.body as { path?: string; password?: string | null };
+  if (!folderPath) { res.status(400).json({ error: "Missing path" }); return; }
+
+  let absPath: string;
+  try { absPath = resolveStoragePath(folderPath); } catch { res.status(400).json({ error: "Invalid path" }); return; }
+  if (!existsSync(absPath)) { res.status(404).json({ error: "Folder not found" }); return; }
+
+  const stat = await fs.stat(absPath).catch(() => null);
+  if (!stat?.isDirectory()) { res.status(400).json({ error: "Path is not a directory" }); return; }
+
+  if (!password) {
+    // Remove password
+    await db.delete(folderPasswordsTable).where(eq(folderPasswordsTable.path, folderPath));
+    res.json({ removed: true });
+    return;
+  }
+
+  const passwordHash = await hashPassword(password);
+  await db
+    .insert(folderPasswordsTable)
+    .values({ path: folderPath, passwordHash })
+    .onConflictDoUpdate({ target: folderPasswordsTable.path, set: { passwordHash } });
+
+  res.json({ set: true });
+});
+
+// POST /files/unlock-folder — verify a folder password and store unlock in session
+router.post("/files/unlock-folder", requireAuth, async (req, res): Promise<void> => {
+  const { path: folderPath, password } = req.body as { path?: string; password?: string };
+  if (!folderPath || !password) { res.status(400).json({ error: "Missing path or password" }); return; }
+
+  const [row] = await db
+    .select({ passwordHash: folderPasswordsTable.passwordHash })
+    .from(folderPasswordsTable)
+    .where(eq(folderPasswordsTable.path, folderPath))
+    .limit(1);
+
+  if (!row) { res.status(404).json({ error: "Folder not protected" }); return; }
+
+  const ok = await verifyPassword(password, row.passwordHash);
+  if (!ok) { res.status(401).json({ error: "WRONG_PASSWORD" }); return; }
+
+  // Store unlocked folder in session
+  const current = req.session.unlockedFolders ?? [];
+  if (!current.includes(folderPath)) {
+    req.session.unlockedFolders = [...current, folderPath];
+  }
+  res.json({ unlocked: true });
 });
 
 // GET /files/stats — storage statistics

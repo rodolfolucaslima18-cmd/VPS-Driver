@@ -1,0 +1,20 @@
+root@vps-15458837:~#
+root@vps-15458837:~# grep ONLYOFFICE /opt/vps-drive/.env
+VPS_DRIVE_INSTALLER_URL=https://central-share-hub.replit.appONLYOFFICE_URL=
+VITE_ONLYOFFICE_URL=http://129.121.52.84:8080
+ONLYOFFICE_URL=
+root@vps-15458837:~# pm2 logs vps-drive-api --lines 10 --nostream
+[TAILING] Tailing last 10 lines for [vps-drive-api] process (change the value with --lines option)
+/root/.pm2/logs/vps-drive-api-error.log last 10 lines:
+/root/.pm2/logs/vps-drive-api-out.log last 10 lines:
+0|vps-driv | e":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":31,"method":"GET","url":"/api/files/stats"},"res":{"statusCode":200},"responseTime":41,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965684259,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":32,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965684951,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":33,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965685756,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":34,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":4,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965686946,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":35,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":6,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965688521,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":36,"method":"GET","url":"/api/files"},"res":{"statusCode":304},"responseTime":15,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965689612,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":37,"method":"GET","url":"/api/files"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+0|vps-driv | {"level":30,"time":1780965701676,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":38,"method":"GET","url":"/api/files/preview"},"res":{"statusCode":200},"responseTime":13,"msg":"request aborted"}
+0|vps-driv | {"level":30,"time":1780965706888,"pid":20598,"hostname":"vps-15458837.vpsbr-15458837.vpshostgator.com.br","req":{"id":39,"method":"GET","url":"/api/files/edit-session"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+
+root@vps-15458837:~#
