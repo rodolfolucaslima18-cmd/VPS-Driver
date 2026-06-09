@@ -1,1 +1,2 @@
 - [Auth migration](auth-migration.md) — VPS Drive usa express-session + bcryptjs (sem Clerk); sessão em PostgreSQL via connect-pg-simple.
+- [Drizzle sessions filter](drizzle-sessions-filter.md) — drizzle.config.ts deve ter tablesFilter: ["!sessions"] para não dropar a tabela de sessões do connect-pg-simple.
