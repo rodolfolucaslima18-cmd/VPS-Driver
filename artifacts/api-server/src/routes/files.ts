@@ -151,7 +151,7 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
 
     if (visible.length > 0) {
       // Trigger background reindex so subsequent requests use the fast SQL path
-      reindexAll().catch(() => {});
+      reindexAll().catch((err) => console.error("[file-index] disk-fallback reindexAll:", err));
 
       const sorted = [...visible].sort((a, b) => {
         const aDir = a.isDirectory() ? 0 : 1;
@@ -388,11 +388,11 @@ router.post(
     // Fire-and-forget: update file index for all uploaded files and any new parent directories
     for (const uploadedFile of uploaded) {
       const absFilePath = path.join(STORAGE_ROOT, uploadedFile.path);
-      indexItem(absFilePath).catch(() => {});
+      indexItem(absFilePath).catch((err) => console.error("[file-index] upload indexItem:", err));
       let rel = uploadedFile.path;
       while (rel.includes("/")) {
         rel = rel.substring(0, rel.lastIndexOf("/"));
-        indexItem(path.join(STORAGE_ROOT, rel)).catch(() => {});
+        indexItem(path.join(STORAGE_ROOT, rel)).catch((err) => console.error("[file-index] upload parent indexItem:", err));
       }
     }
 
@@ -423,7 +423,7 @@ router.post("/files/mkdir", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(absPath, { recursive: true });
   const stats = await fs.stat(absPath);
-  indexItem(absPath).catch(() => {});
+  indexItem(absPath).catch((err) => console.error("[file-index] mkdir indexItem:", err));
   res.status(201).json(buildFileItem(absPath, stats));
 });
 
@@ -458,7 +458,7 @@ router.patch("/files/rename", requireAuth, async (req, res): Promise<void> => {
   // Ensure parent directory of new path exists
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
   await fs.rename(oldAbs, newAbs);
-  moveInIndex(parsed.data.oldPath, newAbs).catch(() => {});
+  moveInIndex(parsed.data.oldPath, newAbs).catch((err) => console.error("[file-index] rename moveInIndex:", err));
 
   const stats = await fs.stat(newAbs);
   res.json(buildFileItem(newAbs, stats));
@@ -498,7 +498,7 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
     res.status(500).json({ error: `Não foi possível excluir: ${msg}` });
     return;
   }
-  removeFromIndex(parsed.data.path).catch(() => {});
+  removeFromIndex(parsed.data.path).catch((err) => console.error("[file-index] delete removeFromIndex:", err));
   res.sendStatus(204);
 });
 
@@ -963,7 +963,7 @@ router.post("/files/bulk-delete", requireAuth, async (req, res): Promise<void> =
         }
         await fs.rm(absPath, { recursive: true, force: true });
         deleted.push(rawPath);
-        removeFromIndex(rawPath).catch(() => {});
+        removeFromIndex(rawPath).catch((err) => console.error("[file-index] bulk-delete removeFromIndex:", err));
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -1011,7 +1011,7 @@ router.post("/files/bulk-move", requireAuth, async (req, res): Promise<void> => 
         await fs.mkdir(path.dirname(dstAbs), { recursive: true });
         await fs.rename(srcAbs, dstAbs);
         moved.push(rawPath);
-        moveInIndex(rawPath, dstAbs).catch(() => {});
+        moveInIndex(rawPath, dstAbs).catch((err) => console.error("[file-index] bulk-move moveInIndex:", err));
       } catch (err) {
         failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
       }
@@ -1054,7 +1054,7 @@ router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(path.dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);
-  moveInIndex(sourcePath, dstAbs).catch(() => {});
+  moveInIndex(sourcePath, dstAbs).catch((err) => console.error("[file-index] move moveInIndex:", err));
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
@@ -1104,7 +1104,7 @@ router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
   }
 
   await copyRecursive(srcAbs, dstAbs);
-  indexSubtree(dstAbs).catch(() => {});
+  indexSubtree(dstAbs).catch((err) => console.error("[file-index] copy indexSubtree:", err));
 
   const stats = await fs.stat(dstAbs);
   res.json(buildFileItem(dstAbs, stats));
