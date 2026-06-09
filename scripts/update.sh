@@ -165,6 +165,13 @@ if [[ -n "$DATABASE_URL" ]]; then
   fi
 fi
 
+# ── Carregar variáveis do .env para build ────────────────────
+# Necessário para que VITE_* sejam embutidas no bundle do frontend
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE" 2>/dev/null || true
+set +a
+
 # ── Build frontend ────────────────────────────────────────────
 step "Compilando frontend..."
 set +e

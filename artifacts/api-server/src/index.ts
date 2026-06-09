@@ -1,5 +1,14 @@
+import path from "path";
 import app from "./app";
 import { logger } from "./lib/logger";
+
+// Load .env from the project root (works on VPS regardless of PM2 env injection)
+try {
+  const envPath = path.resolve(process.cwd(), ".env");
+  process.loadEnvFile(envPath);
+} catch {
+  // .env not found or already loaded — not an error in production
+}
 
 const rawPort = process.env["PORT"];
 
