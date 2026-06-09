@@ -1,81 +1,90 @@
-import path from "path";
-import fs from "fs/promises";
-import { existsSync } from "fs";
 import crypto from "crypto";
-import { STORAGE_ROOT } from "./storage";
-
-const SHARES_FILE = path.join(STORAGE_ROOT, ".shares.json");
+import { db, shareTokensTable } from "@workspace/db";
+import { eq, and, or, gt, isNull, sql } from "drizzle-orm";
+import type { ShareTokenRow } from "@workspace/db";
 
 export type ShareToken = {
   token: string;
   filePath: string;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   createdBy: string;
+  hasPassword: boolean;
+  maxDownloads: number | null;
+  downloadCount: number;
 };
 
-type ShareStore = Record<string, ShareToken>;
-
-async function readStore(): Promise<ShareStore> {
-  if (!existsSync(SHARES_FILE)) return {};
-  try {
-    const raw = await fs.readFile(SHARES_FILE, "utf-8");
-    return JSON.parse(raw) as ShareStore;
-  } catch {
-    return {};
-  }
-}
-
-async function writeStore(store: ShareStore): Promise<void> {
-  await fs.mkdir(STORAGE_ROOT, { recursive: true });
-  await fs.writeFile(SHARES_FILE, JSON.stringify(store, null, 2), "utf-8");
+function rowToShareToken(row: ShareTokenRow): ShareToken {
+  return {
+    token: row.token,
+    filePath: row.filePath,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt?.toISOString() ?? null,
+    createdBy: row.createdBy,
+    hasPassword: !!row.passwordHash,
+    maxDownloads: row.maxDownloads,
+    downloadCount: row.downloadCount,
+  };
 }
 
 export async function createShareToken(
   filePath: string,
-  ttlSeconds: number,
-  createdBy: string
+  expiresIn: number | null,
+  createdBy: string,
+  passwordHash?: string | null,
+  maxDownloads?: number | null,
 ): Promise<ShareToken> {
-  const store = await readStore();
   const token = crypto.randomBytes(32).toString("hex");
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
-  const entry: ShareToken = {
+  const expiresAt = expiresIn ? new Date(now.getTime() + expiresIn * 1000) : null;
+
+  const [row] = await db.insert(shareTokensTable).values({
     token,
     filePath,
-    createdAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    createdAt: now,
+    expiresAt,
     createdBy,
-  };
-  store[token] = entry;
-  await writeStore(store);
-  return entry;
+    passwordHash: passwordHash ?? null,
+    maxDownloads: maxDownloads ?? null,
+    downloadCount: 0,
+  }).returning();
+
+  return rowToShareToken(row);
 }
 
-export async function getShareToken(token: string): Promise<ShareToken | null> {
-  const store = await readStore();
-  const entry = store[token];
-  if (!entry) return null;
-  if (new Date(entry.expiresAt) < new Date()) {
-    delete store[token];
-    await writeStore(store);
-    return null;
-  }
-  return entry;
+export async function getShareTokenRaw(token: string): Promise<ShareTokenRow | null> {
+  const [row] = await db
+    .select()
+    .from(shareTokensTable)
+    .where(eq(shareTokensTable.token, token))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function deleteShareToken(token: string): Promise<boolean> {
-  const store = await readStore();
-  if (!store[token]) return false;
-  delete store[token];
-  await writeStore(store);
-  return true;
+  const result = await db
+    .delete(shareTokensTable)
+    .where(eq(shareTokensTable.token, token));
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function incrementDownloadCount(token: string): Promise<void> {
+  await db
+    .update(shareTokensTable)
+    .set({ downloadCount: sql`${shareTokensTable.downloadCount} + 1` })
+    .where(eq(shareTokensTable.token, token));
 }
 
 export async function listShareTokensByUser(userId: string): Promise<ShareToken[]> {
-  const store = await readStore();
   const now = new Date();
-  return Object.values(store).filter(
-    (t) => t.createdBy === userId && new Date(t.expiresAt) > now
-  );
+  const rows = await db
+    .select()
+    .from(shareTokensTable)
+    .where(
+      and(
+        eq(shareTokensTable.createdBy, userId),
+        or(isNull(shareTokensTable.expiresAt), gt(shareTokensTable.expiresAt, now))
+      )
+    );
+  return rows.map(rowToShareToken);
 }

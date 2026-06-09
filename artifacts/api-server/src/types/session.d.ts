@@ -5,5 +5,6 @@ declare module "express-session" {
     userId: string;
     role: "master" | "user";
     unlockedFolders?: string[];
+    unlockedShares?: string[];
   }
 }

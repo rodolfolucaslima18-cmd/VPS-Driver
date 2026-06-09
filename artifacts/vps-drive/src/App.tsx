@@ -9,6 +9,7 @@ import SignInPage from "./pages/sign-in";
 import DrivePage from "./pages/drive";
 import SetupPage from "./pages/setup";
 import AdminPage from "./pages/admin";
+import SharePublicPage from "./pages/share-public";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,7 @@ function AppRoutes() {
       <Route path="/admin" component={AdminRoute} />
       <Route path="/setup" component={SetupPage} />
       <Route path="/sign-in" component={SignInRoute} />
+      <Route path="/share/:token" component={SharePublicPage} />
       <Route component={NotFound} />
     </Switch>
   );

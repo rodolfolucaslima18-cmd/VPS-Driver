@@ -1,7 +1,15 @@
 import { useState } from "react";
-import { Link, Copy, Check, Trash2, X, ExternalLink } from "lucide-react";
+import { Link, Copy, Check, Trash2, X, ExternalLink, Lock, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -9,16 +17,21 @@ type ShareToken = {
   token: string;
   filePath: string;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   createdBy: string;
+  hasPassword: boolean;
+  maxDownloads: number | null;
+  downloadCount: number;
 };
 
-type TTLOption = { label: string; value: string };
+type TTLOption = { label: string; value: string; seconds: number | null };
 
 const TTL_OPTIONS: TTLOption[] = [
-  { label: "1 hora", value: "1h" },
-  { label: "24 horas", value: "24h" },
-  { label: "7 dias", value: "7d" },
+  { label: "1 hora",   value: "1h",    seconds: 3600 },
+  { label: "24 horas", value: "24h",   seconds: 86400 },
+  { label: "7 dias",   value: "7d",    seconds: 604800 },
+  { label: "30 dias",  value: "30d",   seconds: 2592000 },
+  { label: "Nunca",    value: "never", seconds: null },
 ];
 
 type Props = {
@@ -28,7 +41,9 @@ type Props = {
 };
 
 export function ShareModal({ filePath, fileName, onClose }: Props) {
-  const [ttl, setTtl] = useState("24h");
+  const [ttlKey, setTtlKey] = useState("24h");
+  const [password, setPassword] = useState("");
+  const [maxDlInput, setMaxDlInput] = useState("");
   const [shareToken, setShareToken] = useState<ShareToken | null>(null);
   const [loading, setLoading] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -36,20 +51,29 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
   const { toast } = useToast();
 
   const shareUrl = shareToken
-    ? `${window.location.origin}${BASE_URL}/api/share/${shareToken.token}`
+    ? `${window.location.origin}${BASE_URL}/share/${shareToken.token}`
     : null;
 
   async function createLink() {
     setLoading(true);
     try {
+      const selected = TTL_OPTIONS.find((o) => o.value === ttlKey) ?? TTL_OPTIONS[1];
+      const maxDownloads = maxDlInput ? parseInt(maxDlInput, 10) || null : null;
+
       const res = await fetch(`${BASE_URL}/api/share`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: filePath, ttl }),
+        body: JSON.stringify({
+          path: filePath,
+          expiresIn: selected.seconds,
+          password: password || undefined,
+          maxDownloads: maxDownloads ?? undefined,
+        }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "Erro ao criar link");
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error ?? "Erro ao criar link");
       }
       const data: ShareToken = await res.json();
       setShareToken(data);
@@ -70,10 +94,9 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
     try {
       const res = await fetch(`${BASE_URL}/api/share/${shareToken.token}`, {
         method: "DELETE",
+        credentials: "include",
       });
-      if (!res.ok && res.status !== 404) {
-        throw new Error("Erro ao revogar link");
-      }
+      if (!res.ok && res.status !== 404) throw new Error("Erro ao revogar link");
       setShareToken(null);
       toast({ title: "Link revogado com sucesso." });
     } catch {
@@ -94,7 +117,8 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
     }
   }
 
-  function formatExpiry(iso: string) {
+  function formatExpiry(iso: string | null) {
+    if (!iso) return "Nunca expira";
     return new Date(iso).toLocaleString("pt-BR", {
       day: "2-digit",
       month: "2-digit",
@@ -109,7 +133,7 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5">
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -119,35 +143,79 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
               <p className="text-sm text-muted-foreground truncate">{fileName}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {!shareToken ? (
           <>
-            {/* TTL selection */}
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Validade do link</p>
-              <div className="flex gap-2">
-                {TTL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setTtl(opt.value)}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
-                      ttl === opt.value
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-accent/50 text-muted-foreground"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+            {/* Expiry */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Validade</p>
+              <Select value={ttlKey} onValueChange={setTtlKey}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TTL_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Password (optional) */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">
+                Senha{" "}
+                <span className="font-normal text-muted-foreground">(opcional)</span>
+              </p>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  type="password"
+                  placeholder="Sem senha"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
+            </div>
+
+            {/* Max downloads (optional) */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">
+                Máx. downloads{" "}
+                <span className="font-normal text-muted-foreground">(opcional)</span>
+              </p>
+              <div className="relative">
+                <Download className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="Ilimitado"
+                  value={maxDlInput}
+                  onChange={(e) => setMaxDlInput(e.target.value)}
+                  className="pl-8"
+                />
               </div>
             </div>
 
             <Button className="w-full" onClick={createLink} disabled={loading}>
-              {loading ? "Gerando link…" : "Gerar link de compartilhamento"}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Gerando link…
+                </span>
+              ) : (
+                "Gerar link de compartilhamento"
+              )}
             </Button>
           </>
         ) : (
@@ -180,9 +248,25 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
                   <ExternalLink className="w-4 h-4" />
                 </a>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Expira em {formatExpiry(shareToken.expiresAt)}
-              </p>
+
+              {/* Metadata badges */}
+              <div className="flex flex-wrap gap-2 pt-0.5">
+                <span className="text-xs text-muted-foreground">
+                  Expira: {formatExpiry(shareToken.expiresAt)}
+                </span>
+                {shareToken.hasPassword && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded px-1.5 py-0.5">
+                    <Lock className="w-2.5 h-2.5" />
+                    Com senha
+                  </span>
+                )}
+                {shareToken.maxDownloads !== null && (
+                  <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 dark:bg-blue-950/30 rounded px-1.5 py-0.5">
+                    <Download className="w-2.5 h-2.5" />
+                    Máx. {shareToken.maxDownloads} downloads
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
