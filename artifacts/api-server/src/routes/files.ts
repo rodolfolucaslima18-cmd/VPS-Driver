@@ -10,6 +10,7 @@ import {
   STORAGE_ROOT,
   ensureStorageRoot,
   resolveStoragePath,
+  toRelativePath,
   buildFileItem,
   getStorageStats,
   getMimeType,
@@ -449,7 +450,17 @@ router.post("/files/mkdir", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(absPath, { recursive: true });
   const stats = await fs.stat(absPath);
-  try { await indexItem(absPath); } catch (err) { console.error("[file-index] mkdir indexItem:", err); }
+
+  // Index the leaf directory AND all intermediate ancestors that were created by the
+  // recursive mkdir (e.g. creating "a/b/c" also creates "a" and "a/b").
+  // indexItem is an upsert, so re-indexing an existing directory is safe.
+  const relLeaf = toRelativePath(absPath);
+  const parts = relLeaf ? relLeaf.split("/") : [];
+  for (let i = 1; i <= parts.length; i++) {
+    const ancestorAbs = path.join(STORAGE_ROOT, parts.slice(0, i).join("/"));
+    try { await indexItem(ancestorAbs); } catch (err) { console.error("[file-index] mkdir indexItem:", err); }
+  }
+
   res.status(201).json(buildFileItem(absPath, stats));
 });
 
@@ -1168,8 +1179,35 @@ router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
   });
 });
 
+// ── Guarantee file_index table exists (idempotent, runs before any route) ─────
+// This is a safety net in case the deployment did not run `drizzle-kit push`.
+// The CREATE TABLE IF NOT EXISTS is a no-op if the table already exists.
+(async () => {
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS file_index (
+        path        TEXT        PRIMARY KEY NOT NULL,
+        name        TEXT        NOT NULL,
+        parent_path TEXT        NOT NULL,
+        is_dir      BOOLEAN     NOT NULL DEFAULT false,
+        size        BIGINT,
+        mime_type   TEXT,
+        modified_at TIMESTAMP   NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS file_index_parent_path_idx ON file_index (parent_path);
+      CREATE INDEX IF NOT EXISTS file_index_name_idx         ON file_index (name);
+    `);
+  } catch (err) {
+    console.error("[VPS Drive] Could not ensure file_index table:", err);
+  }
+})();
+
 // ── Auto-reindex on startup if index is empty but storage has files ───────────
 // This runs once when the module is loaded (server start / PM2 restart after deploy).
+// Note on consistency model: index mutations on write routes are awaited and errors
+// are logged. If a transient DB error causes an index update to fail, GET /api/files
+// will fall back to disk on next request and trigger a background reindexAll(), so
+// the index self-heals without manual intervention.
 (async () => {
   try {
     const [{ value: cnt }] = await db.select({ value: count() }).from(fileIndexTable);
