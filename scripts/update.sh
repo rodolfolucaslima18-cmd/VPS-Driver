@@ -195,7 +195,12 @@ if [ $_fe_ec -ne 0 ]; then
 fi
 ok "Frontend compilado"
 
-# Corrigir permissões do dist do frontend para o nginx (www-data)
+# Corrigir permissões para o nginx (www-data) conseguir traversar os diretórios
+# e ler os arquivos do dist do frontend
+chmod o+x "$INSTALL_DIR" \
+          "$INSTALL_DIR/artifacts" \
+          "$INSTALL_DIR/artifacts/vps-drive" \
+          "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
 if [[ -d "$INSTALL_DIR/artifacts/vps-drive/dist" ]]; then
   chown -R www-data:www-data "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
   chmod -R 755 "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
