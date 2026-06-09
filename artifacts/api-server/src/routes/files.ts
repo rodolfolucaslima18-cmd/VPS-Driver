@@ -1,7 +1,7 @@
 import express, { Router, type IRouter } from "express";
 import path from "path";
 import fs from "fs/promises";
-import { createReadStream, existsSync } from "fs";
+import { createReadStream, existsSync, mkdirSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import { eq, lt, inArray, and, desc, asc, not, like, ilike, or, count } from "drizzle-orm";
@@ -62,9 +62,21 @@ async function logFileAccess(userId: string, filePath: string, mimeType?: string
 
 const router: IRouter = Router();
 
-// Multer: store uploads in memory temporarily, then move to storage
+// Temp directory for multer disk storage — files are moved to STORAGE_ROOT after validation.
+// Using disk (not memory) storage so uploads stream directly to disk and never fill RAM,
+// which prevents OOM crashes when uploading hundreds of files simultaneously.
+const UPLOAD_TMP_DIR = "/tmp/vps-drive-uploads";
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      mkdirSync(UPLOAD_TMP_DIR, { recursive: true });
+      cb(null, UPLOAD_TMP_DIR);
+    },
+    filename: (_req, _file, cb) => {
+      cb(null, randomUUID());
+    },
+  }),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB per file
 });
 
@@ -367,35 +379,61 @@ router.post(
       }
     }
 
-    const uploaded = await Promise.all(
-      files.map(async (file, i) => {
-        const relPath = relativePaths[i];
-        let destPath: string;
+    // Helper: move temp file to dest, cleaning up the temp on failure.
+    // fs.rename is atomic on the same filesystem; falls back to copy+unlink across devices.
+    async function moveTempFile(tmpPath: string, destPath: string): Promise<void> {
+      try {
+        await fs.rename(tmpPath, destPath);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException)?.code === "EXDEV") {
+          // Cross-device (e.g. /tmp and storage on different mounts)
+          await fs.copyFile(tmpPath, destPath);
+          await fs.unlink(tmpPath).catch(() => {});
+        } else {
+          await fs.unlink(tmpPath).catch(() => {});
+          throw err;
+        }
+      }
+    }
 
-        if (relPath && typeof relPath === "string") {
-          // Normalize path: forward slashes only, no leading slash
-          const normalized = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
-          // Security: reject ".." segments
-          const segments = normalized.split("/");
-          if (segments.some((s) => s === ".." || s === ".")) {
-            // Fallback to safe basename
+    let uploaded: ReturnType<typeof buildFileItem>[];
+    try {
+      uploaded = await Promise.all(
+        files.map(async (file, i) => {
+          const relPath = relativePaths[i];
+          let destPath: string;
+
+          if (relPath && typeof relPath === "string") {
+            // Normalize path: forward slashes only, no leading slash
+            const normalized = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+            // Security: reject ".." segments
+            const segments = normalized.split("/");
+            if (segments.some((s) => s === ".." || s === ".")) {
+              // Fallback to safe basename
+              const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
+              destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
+            } else {
+              destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), normalized));
+              await fs.mkdir(path.dirname(destPath), { recursive: true });
+            }
+          } else {
+            // Plain upload: strip any directory separators from the original filename
             const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
             destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
-          } else {
-            destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), normalized));
-            await fs.mkdir(path.dirname(destPath), { recursive: true });
           }
-        } else {
-          // Plain upload: strip any directory separators from the original filename
-          const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
-          destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
-        }
 
-        await fs.writeFile(destPath, file.buffer);
-        const stats = await fs.stat(destPath);
-        return buildFileItem(destPath, stats);
-      })
-    );
+          await moveTempFile(file.path, destPath);
+          const stats = await fs.stat(destPath);
+          return buildFileItem(destPath, stats);
+        })
+      );
+    } catch (err) {
+      // Clean up any temp files that weren't moved (e.g. files after the one that threw)
+      await Promise.allSettled(
+        files.map((f) => fs.unlink(f.path).catch(() => {}))
+      );
+      throw err;
+    }
 
     // Fire-and-forget: log each uploaded file as recently accessed
     const userId = req.session.userId!;
