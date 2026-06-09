@@ -672,12 +672,24 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
     </Sheet>
 
     {/* OnlyOffice Editor — fullscreen dialog */}
-    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) { setIsEditorOpen(false); setEditSession(null); onRefresh?.(); } }}>
+    <Dialog open={isEditorOpen} onOpenChange={(open) => {
+      if (!open) {
+        setIsEditorOpen(false);
+        onRefresh?.();
+        // Delay clearing the session so the editor stays mounted during the
+        // Dialog closing animation — prevents a white-flash on close.
+        setTimeout(() => setEditSession(null), 350);
+      }
+    }}>
       <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col">
         {editSession && (
           <OnlyOfficeEditor
             session={editSession}
-            onClose={() => { setIsEditorOpen(false); setEditSession(null); }}
+            onClose={() => {
+              setIsEditorOpen(false);
+              onRefresh?.();
+              setTimeout(() => setEditSession(null), 350);
+            }}
           />
         )}
       </DialogContent>
