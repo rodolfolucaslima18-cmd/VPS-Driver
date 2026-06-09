@@ -158,6 +158,12 @@ export default function DrivePage() {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
+  const [duplicateModal, setDuplicateModal] = useState<{
+    entries: Array<{ file: File; relativePath: string }>;
+    targetPath: string;
+    duplicateNames: string[];
+    onDone?: () => void;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -293,6 +299,32 @@ export default function DrivePage() {
 
   const uploadQueue = useUploadQueue({ onBatchComplete: invalidate });
 
+  // Check for duplicates against currently-displayed items before enqueuing.
+  // Shows a modal asking the user to overwrite or skip if any match found.
+  const checkAndEnqueue = useCallback((
+    entries: Array<{ file: File; relativePath: string }>,
+    targetPath: string,
+    onDone?: () => void,
+  ) => {
+    if (entries.length === 0) { onDone?.(); return; }
+    const existingNames = new Set(displayedItems.map((i) => i.name));
+    const duplicateNames: string[] = [];
+    const seenTops = new Set<string>();
+    for (const entry of entries) {
+      const topLevel = entry.relativePath.split("/")[0];
+      if (!seenTops.has(topLevel) && existingNames.has(topLevel)) {
+        duplicateNames.push(topLevel);
+        seenTops.add(topLevel);
+      }
+    }
+    if (duplicateNames.length === 0) {
+      uploadQueue.enqueue(entries, targetPath);
+      onDone?.();
+      return;
+    }
+    setDuplicateModal({ entries, targetPath, duplicateNames, onDone });
+  }, [displayedItems, uploadQueue]);
+
   // Focus rename input when rename mode activates
   useEffect(() => {
     if (renamingPath !== null) {
@@ -313,17 +345,17 @@ export default function DrivePage() {
     onDone?: () => void,
   ) => {
     if (entries.length === 0) return;
-    uploadQueue.enqueue(entries, currentPath);
-    onDone?.();
-  }, [currentPath, uploadQueue]);
+    checkAndEnqueue(entries, currentPath, onDone);
+  }, [currentPath, checkAndEnqueue]);
 
   // Enqueue a flat FileList (plain file-picker or drag-drop without folders)
   const doUpload = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const entries = Array.from(fileList).map((f) => ({ file: f, relativePath: f.name }));
-    uploadQueue.enqueue(entries, currentPath);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [currentPath, uploadQueue]);
+    checkAndEnqueue(entries, currentPath, () => {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    });
+  }, [currentPath, checkAndEnqueue]);
 
   const doUploadFolder = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) {
@@ -339,9 +371,10 @@ export default function DrivePage() {
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    uploadQueue.enqueue(entries, currentPath);
-    if (folderInputRef.current) folderInputRef.current.value = "";
-  }, [currentPath, uploadQueue, toast]);
+    checkAndEnqueue(entries, currentPath, () => {
+      if (folderInputRef.current) folderInputRef.current.value = "";
+    });
+  }, [currentPath, checkAndEnqueue, toast]);
 
   const toggleSelection = useCallback((itemPath: string) => {
     setSelectedPaths(prev => {
@@ -515,11 +548,11 @@ export default function DrivePage() {
       if (!files || files.length === 0) return;
       e.preventDefault();
       const entries = Array.from(files).map((f) => ({ file: f, relativePath: f.name }));
-      uploadQueue.enqueue(entries, currentPath);
+      checkAndEnqueue(entries, currentPath);
     };
     window.addEventListener("paste", handler);
     return () => window.removeEventListener("paste", handler);
-  }, [currentPath, uploadQueue]);
+  }, [currentPath, checkAndEnqueue]);
 
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -838,6 +871,63 @@ export default function DrivePage() {
               onClick={doBulkDelete}
             >
               Excluir tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Duplicate files dialog */}
+      <AlertDialog open={!!duplicateModal} onOpenChange={(open) => { if (!open) setDuplicateModal(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Arquivos já existem</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {duplicateModal?.duplicateNames.length === 1
+                    ? <>O item <strong>"{duplicateModal.duplicateNames[0]}"</strong> já existe nesta pasta.</>
+                    : <><strong>{duplicateModal?.duplicateNames.length} itens</strong> já existem nesta pasta:</>
+                  }
+                </p>
+                {duplicateModal && duplicateModal.duplicateNames.length > 1 && (
+                  <ul className="max-h-32 overflow-y-auto text-xs text-muted-foreground space-y-0.5 pl-1">
+                    {duplicateModal.duplicateNames.map((name) => (
+                      <li key={name} className="truncate">• {name}</li>
+                    ))}
+                  </ul>
+                )}
+                <p className="pt-1">O que deseja fazer?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel onClick={() => setDuplicateModal(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground shadow-none"
+              onClick={() => {
+                if (!duplicateModal) return;
+                const dupSet = new Set(duplicateModal.duplicateNames);
+                const filtered = duplicateModal.entries.filter(
+                  (e) => !dupSet.has(e.relativePath.split("/")[0])
+                );
+                if (filtered.length > 0) {
+                  uploadQueue.enqueue(filtered, duplicateModal.targetPath);
+                }
+                duplicateModal.onDone?.();
+                setDuplicateModal(null);
+              }}
+            >
+              Pular duplicatas
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (!duplicateModal) return;
+                uploadQueue.enqueue(duplicateModal.entries, duplicateModal.targetPath);
+                duplicateModal.onDone?.();
+                setDuplicateModal(null);
+              }}
+            >
+              Sobrescrever
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
