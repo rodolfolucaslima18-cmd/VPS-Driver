@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search, Move, Copy
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search, Move, Copy, Clock
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -104,6 +104,22 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { month: "short", day: "numeric" });
 }
 
+type RecentItem = { path: string; name: string; accessedAt: string; mimeType: string | null };
+
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return "agora";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "ontem";
+  if (days < 7) return `há ${days} dias`;
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
+}
+
 function formatTotalSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -138,6 +154,7 @@ export default function DrivePage() {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -241,6 +258,20 @@ export default function DrivePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
+  const fetchRecent = useCallback(async () => {
+    try {
+      const resp = await fetch(`${BASE_URL}/api/files/recent`, { credentials: "include" });
+      if (!resp.ok) return;
+      const data = await resp.json() as RecentItem[];
+      setRecentItems(data);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  // Fetch recent items on mount
+  useEffect(() => { fetchRecent(); }, [fetchRecent]);
+
   const invalidate = useCallback(() => {
     // Reset pagination state but keep existing items visible while refreshing —
     // prevents the list from going blank if the refresh fetch is slow or fails.
@@ -249,7 +280,8 @@ export default function DrivePage() {
     setTotalItems(0);
     fetchFilesPage(currentPath, 1, searchQuery);
     queryClient.invalidateQueries({ queryKey: getGetStorageStatsQueryKey() });
-  }, [queryClient, currentPath, fetchFilesPage, searchQuery]);
+    fetchRecent();
+  }, [queryClient, currentPath, fetchFilesPage, searchQuery, fetchRecent]);
 
   // Focus rename input when rename mode activates
   useEffect(() => {
@@ -853,23 +885,36 @@ export default function DrivePage() {
               </p>
             </div>
 
-            {stats && stats.recentFiles.length > 0 && (
+            {recentItems.length > 0 && (
               <div className="pt-4 border-t border-border">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Recentes</p>
-                <div className="space-y-1">
-                  {stats.recentFiles.slice(0, 5).map((f) => (
-                    <button
-                      key={f.path}
-                      onClick={() => {
-                        if (isPreviewable(f.mimeType ?? null) || isOfficeFile(f as FileItem)) setPreviewItem(f as FileItem);
-                        else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank");
-                      }}
-                      className="w-full text-left flex items-center gap-2 py-1 px-1 rounded text-sm hover:bg-accent/60 transition-colors"
-                    >
-                      <File className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate text-muted-foreground">{f.name}</span>
-                    </button>
-                  ))}
+                <div className="space-y-0.5">
+                  {recentItems.slice(0, 10).map((item) => {
+                    const parentDir = item.path.includes("/")
+                      ? item.path.substring(0, item.path.lastIndexOf("/"))
+                      : "";
+                    return (
+                      <button
+                        key={item.path}
+                        onClick={() => {
+                          setCurrentPath(parentDir);
+                          if (isPreviewable(item.mimeType) || isOfficeFile({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem)) {
+                            setPreviewItem({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem);
+                          }
+                          fetchRecent();
+                        }}
+                        className="w-full text-left flex items-center gap-2 py-1 px-1 rounded hover:bg-accent/60 transition-colors group"
+                        title={item.path}
+                      >
+                        <File className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate text-xs text-muted-foreground group-hover:text-foreground transition-colors">{item.name}</span>
+                        <span className="text-[10px] text-muted-foreground/60 shrink-0 whitespace-nowrap flex items-center gap-0.5">
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatRelativeTime(item.accessedAt)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

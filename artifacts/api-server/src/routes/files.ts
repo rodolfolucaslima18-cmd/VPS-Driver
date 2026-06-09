@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
-import { eq, lt, inArray } from "drizzle-orm";
-import { db, fileTokensTable, folderPasswordsTable } from "@workspace/db";
+import { eq, lt, inArray, and, desc } from "drizzle-orm";
+import { db, fileTokensTable, folderPasswordsTable, fileAccessLogTable } from "@workspace/db";
 import {
   STORAGE_ROOT,
   ensureStorageRoot,
@@ -30,6 +30,33 @@ setInterval(async () => {
     // Non-critical — expired rows will simply be ignored at lookup time
   }
 }, 10 * 60 * 1000).unref();
+
+// ── File access logging helper ───────────────────────────────
+async function logFileAccess(userId: string, filePath: string, mimeType?: string): Promise<void> {
+  const fileName = path.basename(filePath);
+  try {
+    // Remove existing entry for this user+path so the new one becomes most recent
+    await db.delete(fileAccessLogTable).where(
+      and(eq(fileAccessLogTable.userId, userId), eq(fileAccessLogTable.filePath, filePath))
+    );
+    await db.insert(fileAccessLogTable).values({ userId, filePath, fileName, mimeType: mimeType ?? null });
+    // Keep only the 50 most recent entries per user
+    const topRows = await db
+      .select({ id: fileAccessLogTable.id })
+      .from(fileAccessLogTable)
+      .where(eq(fileAccessLogTable.userId, userId))
+      .orderBy(desc(fileAccessLogTable.accessedAt))
+      .limit(51);
+    if (topRows.length === 51) {
+      const cutoffId = topRows[topRows.length - 1].id;
+      await db.delete(fileAccessLogTable).where(
+        and(eq(fileAccessLogTable.userId, userId), lt(fileAccessLogTable.id, cutoffId))
+      );
+    }
+  } catch {
+    // Non-critical
+  }
+}
 
 const router: IRouter = Router();
 
@@ -196,6 +223,8 @@ router.get("/files/download", requireAuth, async (req, res): Promise<void> => {
   const filename = path.basename(absPath);
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.setHeader("Content-Length", stats.size);
+
+  logFileAccess(req.session.userId!, rawPath, getMimeType(absPath)).catch(() => {});
 
   const stream = createReadStream(absPath);
   stream.on("error", () => {
@@ -465,6 +494,8 @@ router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
   }
 
   const mimeType = getMimeType(absPath);
+
+  logFileAccess(req.session.userId!, rawPath, mimeType).catch(() => {});
 
   const TEXT_MIME_PREFIXES = ["text/"];
   const TEXT_MIME_TYPES = [
@@ -804,6 +835,24 @@ router.post("/files/unlock-folder", requireAuth, async (req, res): Promise<void>
     req.session.unlockedFolders = [...current, folderPath];
   }
   res.json({ unlocked: true });
+});
+
+// GET /files/recent — return 10 most recently accessed files for the current user
+router.get("/files/recent", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.session.userId!;
+  const rows = await db
+    .select()
+    .from(fileAccessLogTable)
+    .where(eq(fileAccessLogTable.userId, userId))
+    .orderBy(desc(fileAccessLogTable.accessedAt))
+    .limit(10);
+
+  res.json(rows.map((r) => ({
+    path: r.filePath,
+    name: r.fileName,
+    mimeType: r.mimeType,
+    accessedAt: r.accessedAt.toISOString(),
+  })));
 });
 
 // POST /files/bulk-delete — delete multiple files/folders at once
