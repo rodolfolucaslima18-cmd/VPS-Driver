@@ -184,7 +184,11 @@ export default function DrivePage() {
       if (path)   params.append("path", path);
       if (search) params.append("search", search);
       const resp = await fetch(`${BASE_URL}/api/files?${params}`, { credentials: "include" });
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        console.error("[VPS Drive] fetchFilesPage failed:", resp.status, resp.statusText);
+        toast({ title: "Erro ao carregar arquivos", description: `HTTP ${resp.status}`, variant: "destructive" });
+        return;
+      }
       const data = (await resp.json()) as {
         items: FileItem[];
         total: number;
@@ -195,11 +199,13 @@ export default function DrivePage() {
       setTotalItems(data.total);
       setCurrentPage(data.page);
       setHasMore(data.page < data.totalPages);
+    } catch (err) {
+      console.error("[VPS Drive] fetchFilesPage error:", err);
     } finally {
       if (isFirst) setIsLoadingPage1(false);
       else         setIsLoadingMore(false);
     }
-  }, []);
+  }, [toast]);
 
   // Fetch page 1 whenever the current folder changes — also clear search
   useEffect(() => {
@@ -223,8 +229,8 @@ export default function DrivePage() {
   }, [searchQuery]);
 
   const invalidate = useCallback(() => {
-    // Reset pagination and reload page 1 for current folder
-    setDisplayedItems([]);
+    // Reset pagination state but keep existing items visible while refreshing —
+    // prevents the list from going blank if the refresh fetch is slow or fails.
     setCurrentPage(1);
     setHasMore(false);
     setTotalItems(0);
@@ -329,7 +335,15 @@ export default function DrivePage() {
   }, [currentPath, uploadMutation, invalidate, toast, doUploadWithPaths]);
 
   const doUploadFolder = useCallback(async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
+    if (!fileList || fileList.length === 0) {
+      toast({
+        title: "Pasta vazia",
+        description: "A pasta selecionada não contém arquivos.",
+        variant: "destructive",
+      });
+      if (folderInputRef.current) folderInputRef.current.value = "";
+      return;
+    }
     const entries = Array.from(fileList).map((file) => ({
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
@@ -337,7 +351,7 @@ export default function DrivePage() {
     await doUploadWithPaths(entries, () => {
       if (folderInputRef.current) folderInputRef.current.value = "";
     });
-  }, [doUploadWithPaths]);
+  }, [doUploadWithPaths, toast]);
 
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -615,7 +629,12 @@ export default function DrivePage() {
         type="file"
         multiple
         className="hidden"
-        onChange={(e) => doUpload(e.target.files)}
+        onChange={(e) => {
+          doUpload(e.target.files).catch((err) => {
+            console.error("[VPS Drive] doUpload error:", err);
+            toast({ title: "Erro ao enviar arquivos", description: String(err), variant: "destructive" });
+          });
+        }}
       />
       <input
         ref={folderInputRef}
@@ -624,7 +643,12 @@ export default function DrivePage() {
         webkitdirectory="true"
         multiple
         className="hidden"
-        onChange={(e) => doUploadFolder(e.target.files)}
+        onChange={(e) => {
+          doUploadFolder(e.target.files).catch((err) => {
+            console.error("[VPS Drive] doUploadFolder error:", err);
+            toast({ title: "Erro ao enviar pasta", description: String(err), variant: "destructive" });
+          });
+        }}
       />
 
       {/* Sidebar */}
