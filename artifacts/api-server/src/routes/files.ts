@@ -54,7 +54,7 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
 
   // Pagination params — read directly from query to avoid touching generated schema
   const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),   10) || 1);
-  const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit ?? "200"), 10) || 200));
+  const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit ?? "200"), 10) || 200));
 
   let absPath: string;
   try {
@@ -65,9 +65,9 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (!existsSync(absPath)) {
-    // Return empty array if root doesn't exist yet
+    // Return empty list if root doesn't exist yet
     if (absPath === STORAGE_ROOT) {
-      res.json([]);
+      res.json({ items: [], total: 0, page: 1, totalPages: 1 });
       return;
     }
     res.status(404).json({ error: "Directory not found" });
@@ -81,22 +81,6 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Not a directory or cannot read" });
     return;
   }
-
-  const items = await Promise.all(
-    entries
-      .filter((e) => !e.name.startsWith("."))
-      .map(async (entry) => {
-        const entryPath = path.join(absPath, entry.name);
-        try {
-          const stats = await fs.stat(entryPath);
-          return buildFileItem(entryPath, stats);
-        } catch {
-          return null;
-        }
-      })
-  );
-
-  const validItems = items.filter(Boolean) as NonNullable<(typeof items)[0]>[];
 
   // Check if the current path itself is locked (non-master users)
   const currentFolderPath = parsed.data.path ?? "";
@@ -115,38 +99,59 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  // Enrich directory items with hasPassword flag
-  const dirPaths = validItems.filter((i) => i.type === "directory").map((i) => i.path);
+  // Sort using Dirent.isDirectory() — no stat needed to order dirs-first alphabetically
+  const visible = entries
+    .filter((e) => !e.name.startsWith("."))
+    .sort((a, b) => {
+      const aDir = a.isDirectory() ? 0 : 1;
+      const bDir = b.isDirectory() ? 0 : 1;
+      if (aDir !== bDir) return aDir - bDir;
+      return a.name.localeCompare(b.name);
+    });
+
+  const total      = visible.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const pageEntries = visible.slice((page - 1) * limit, page * limit);
+
+  // Stat only the items on this page, using bounded-concurrency batches of 20
+  const BATCH = 20;
+  const pageItems: ReturnType<typeof buildFileItem>[] = [];
+  for (let i = 0; i < pageEntries.length; i += BATCH) {
+    const batch = pageEntries.slice(i, i + BATCH);
+    const results = await Promise.all(
+      batch.map(async (entry) => {
+        const entryPath = path.join(absPath, entry.name);
+        try {
+          const stats = await fs.stat(entryPath);
+          return buildFileItem(entryPath, stats);
+        } catch {
+          return null;
+        }
+      })
+    );
+    pageItems.push(...(results.filter(Boolean) as ReturnType<typeof buildFileItem>[]));
+  }
+
+  // Enrich only page directories with hasPassword flag
+  const pageDirPaths = pageItems.filter((i) => i.type === "directory").map((i) => i.path);
   const lockedPaths = new Set<string>();
-  if (dirPaths.length > 0) {
+  if (pageDirPaths.length > 0) {
     const locked = await db
       .select({ path: folderPasswordsTable.path })
       .from(folderPasswordsTable)
-      .where(inArray(folderPasswordsTable.path, dirPaths));
+      .where(inArray(folderPasswordsTable.path, pageDirPaths));
     locked.forEach((r) => lockedPaths.add(r.path));
   }
 
-  // Directories first, then files, both sorted by name
-  validItems.sort((a, b) => {
-    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const total      = validItems.length;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const pageItems  = validItems.slice((page - 1) * limit, page * limit);
-
-  res.setHeader("X-Total-Count", String(total));
-  res.setHeader("X-Total-Pages", String(totalPages));
-  res.setHeader("X-Page",        String(page));
-  res.setHeader("Access-Control-Expose-Headers", "X-Total-Count, X-Total-Pages, X-Page");
-
-  res.json(
-    pageItems.map((item) => ({
+  res.json({
+    items: pageItems.map((item) => ({
       ...item,
       hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
-    }))
-  );
+    })),
+    total,
+    page,
+    totalPages,
+  });
 });
 
 // GET /files/download — download a file

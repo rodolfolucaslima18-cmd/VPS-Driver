@@ -174,13 +174,16 @@ export default function DrivePage() {
       if (path) params.append("path", path);
       const resp = await fetch(`${BASE_URL}/api/files?${params}`, { credentials: "include" });
       if (!resp.ok) return;
-      const total      = parseInt(resp.headers.get("X-Total-Count") ?? "0", 10);
-      const totalPages = parseInt(resp.headers.get("X-Total-Pages") ?? "1", 10);
-      const items      = (await resp.json()) as FileItem[];
-      setDisplayedItems(prev => isFirst ? items : [...prev, ...items]);
-      setTotalItems(total);
-      setCurrentPage(page);
-      setHasMore(page < totalPages);
+      const data = (await resp.json()) as {
+        items: FileItem[];
+        total: number;
+        page: number;
+        totalPages: number;
+      };
+      setDisplayedItems(prev => isFirst ? data.items : [...prev, ...data.items]);
+      setTotalItems(data.total);
+      setCurrentPage(data.page);
+      setHasMore(data.page < data.totalPages);
     } finally {
       if (isFirst) setIsLoadingPage1(false);
       else         setIsLoadingMore(false);
