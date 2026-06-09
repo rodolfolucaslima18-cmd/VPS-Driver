@@ -135,6 +135,9 @@ export default function DrivePage() {
   const [moveAction, setMoveAction] = useState<{ item: FileItem; mode: "move" | "copy" } | null>(null);
   const [draggingItemPath, setDraggingItemPath] = useState<string | null>(null);
   const [dragOverFolderPath, setDragOverFolderPath] = useState<string | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
+  const [bulkDeletePending, setBulkDeletePending] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -216,7 +219,7 @@ export default function DrivePage() {
     }
   }, [toast]);
 
-  // Fetch page 1 whenever the current folder changes — also clear search
+  // Fetch page 1 whenever the current folder changes — also clear search and selection
   useEffect(() => {
     setSearchInput("");
     setSearchQuery("");
@@ -224,6 +227,7 @@ export default function DrivePage() {
     setCurrentPage(1);
     setHasMore(false);
     setTotalItems(0);
+    setSelectedPaths(new Set());
     fetchFilesPage(currentPath, 1);
   }, [currentPath, fetchFilesPage]);
 
@@ -362,6 +366,66 @@ export default function DrivePage() {
     });
   }, [doUploadWithPaths, toast]);
 
+  const toggleSelection = useCallback((itemPath: string) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(itemPath)) next.delete(itemPath);
+      else next.add(itemPath);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedPaths(new Set()), []);
+
+  const doBulkDelete = useCallback(async () => {
+    setBulkDeletePending(false);
+    const paths = Array.from(selectedPaths);
+    try {
+      const resp = await fetch(`${BASE_URL}/api/files/bulk-delete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths }),
+      });
+      const result = await resp.json() as { deleted: string[]; failed: Array<{ path: string; error: string }> };
+      setSelectedPaths(new Set());
+      invalidate();
+      const failedCount = result.failed?.length ?? 0;
+      if (failedCount > 0) {
+        toast({ title: `${result.deleted.length} excluído(s), ${failedCount} falhou(ram)`, variant: "destructive" });
+      } else {
+        toast({ title: `${result.deleted.length} item(ns) excluído(s)` });
+      }
+    } catch (err) {
+      toast({ title: "Erro ao excluir", description: err instanceof Error ? err.message : "Erro", variant: "destructive" });
+    }
+  }, [selectedPaths, invalidate, toast]);
+
+  const doBulkMove = useCallback(async (destDir: string) => {
+    setBulkMoveOpen(false);
+    const paths = Array.from(selectedPaths);
+    try {
+      const resp = await fetch(`${BASE_URL}/api/files/bulk-move`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths, destDir }),
+      });
+      const result = await resp.json() as { moved: string[]; failed: Array<{ path: string; error: string }> };
+      setSelectedPaths(new Set());
+      invalidate();
+      const failedCount = result.failed?.length ?? 0;
+      const dirLabel = destDir || "Início";
+      if (failedCount > 0) {
+        toast({ title: `${result.moved.length} movido(s) para "${dirLabel}", ${failedCount} falhou(ram)`, variant: "destructive" });
+      } else {
+        toast({ title: `${result.moved.length} item(ns) movido(s) para "${dirLabel}"` });
+      }
+    } catch (err) {
+      toast({ title: "Erro ao mover", description: err instanceof Error ? err.message : "Erro", variant: "destructive" });
+    }
+  }, [selectedPaths, invalidate, toast]);
+
   const doMoveOrCopy = useCallback(async (
     mode: "move" | "copy",
     sourcePath: string,
@@ -390,6 +454,13 @@ export default function DrivePage() {
       toast({ title: mode === "move" ? "Erro ao mover" : "Erro ao copiar", description: msg, variant: "destructive" });
     }
   }, [invalidate, toast]);
+
+  // Esc key clears selection
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedPaths(new Set()); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Keep stable refs pointing to the latest callbacks so native DOM listeners
   // never capture a stale closure.
@@ -699,7 +770,7 @@ export default function DrivePage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Move / Copy folder picker */}
+      {/* Move / Copy folder picker (single item) */}
       <FolderPickerModal
         open={!!moveAction}
         onClose={() => setMoveAction(null)}
@@ -712,6 +783,38 @@ export default function DrivePage() {
           setMoveAction(null);
         }}
       />
+
+      {/* Bulk move folder picker */}
+      <FolderPickerModal
+        open={bulkMoveOpen}
+        onClose={() => setBulkMoveOpen(false)}
+        mode="move"
+        sourcePath=""
+        itemName={`${selectedPaths.size} ${selectedPaths.size === 1 ? "item" : "itens"}`}
+        titleOverride={`Mover ${selectedPaths.size} ${selectedPaths.size === 1 ? "item" : "itens"}`}
+        onConfirm={(destDirPath) => doBulkMove(destDirPath)}
+      />
+
+      {/* Bulk delete confirmation */}
+      <AlertDialog open={bulkDeletePending} onOpenChange={(open) => { if (!open) setBulkDeletePending(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selectedPaths.size} {selectedPaths.size === 1 ? "item" : "itens"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. {selectedPaths.size === 1 ? "O item selecionado será excluído" : `Os ${selectedPaths.size} itens selecionados serão excluídos`} permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={doBulkDelete}
+            >
+              Excluir tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Hidden file inputs */}
       <input
@@ -921,14 +1024,25 @@ export default function DrivePage() {
                     onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
-                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${selectedPaths.has(file.path) ? "border-primary bg-primary/10" : dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
+                      if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
                       else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
                   >
+                    {/* Selection checkbox */}
+                    <button
+                      data-nomenu
+                      className={`absolute top-1.5 left-1.5 z-10 p-0.5 rounded transition-opacity ${selectedPaths.has(file.path) || selectedPaths.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                      onClick={(e) => { e.stopPropagation(); toggleSelection(file.path); }}
+                    >
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.has(file.path) ? "bg-primary border-primary" : "border-muted-foreground bg-card"}`}>
+                        {selectedPaths.has(file.path) && <Check className="w-2.5 h-2.5 text-primary-foreground" strokeWidth={3} />}
+                      </div>
+                    </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -1019,8 +1133,17 @@ export default function DrivePage() {
               <>
               <div className="flex flex-col rounded-xl border border-border overflow-hidden">
                 {/* Header */}
-                <div className="grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
-                  <span className="w-5" />
+                <div className="grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
+                  <button
+                    data-nomenu
+                    className="flex items-center justify-center"
+                    onClick={(e) => { e.stopPropagation(); if (selectedPaths.size === displayedItems.length && displayedItems.length > 0) setSelectedPaths(new Set()); else setSelectedPaths(new Set(displayedItems.map(i => i.path))); }}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.size > 0 && selectedPaths.size === displayedItems.length ? "bg-primary border-primary" : selectedPaths.size > 0 ? "border-primary" : "border-muted-foreground"}`}>
+                      {selectedPaths.size > 0 && selectedPaths.size === displayedItems.length && <Check className="w-2 h-2 text-primary-foreground" strokeWidth={3} />}
+                      {selectedPaths.size > 0 && selectedPaths.size < displayedItems.length && <div className="w-2 h-0.5 bg-primary rounded" />}
+                    </div>
+                  </button>
                   <span>Nome</span>
                   <span className="text-right">Tamanho</span>
                   <span className="text-right">Modificado</span>
@@ -1035,14 +1158,25 @@ export default function DrivePage() {
                     onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
                     onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
                     onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
-                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""} ${selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
+                      if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
                       else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
                   >
+                    {/* Checkbox */}
+                    <button
+                      data-nomenu
+                      className={`flex items-center justify-center transition-opacity ${selectedPaths.has(file.path) || selectedPaths.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                      onClick={(e) => { e.stopPropagation(); toggleSelection(file.path); }}
+                    >
+                      <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.has(file.path) ? "bg-primary border-primary" : "border-muted-foreground"}`}>
+                        {selectedPaths.has(file.path) && <Check className="w-2 h-2 text-primary-foreground" strokeWidth={3} />}
+                      </div>
+                    </button>
                     {/* Icon */}
                     {file.type === "directory" ? (
                       <div className="relative shrink-0">
@@ -1173,6 +1307,37 @@ export default function DrivePage() {
             </div>
           )}
         </div>
+
+        {/* Floating bulk action bar */}
+        {selectedPaths.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-card border border-border shadow-2xl">
+            <button
+              className="p-1 rounded hover:bg-accent transition-colors"
+              onClick={() => setSelectedPaths(new Set())}
+              title="Cancelar seleção"
+            >
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+            <span className="text-sm font-medium">
+              {selectedPaths.size} selecionado{selectedPaths.size > 1 ? "s" : ""}
+            </span>
+            <button
+              className="text-xs text-primary hover:underline whitespace-nowrap"
+              onClick={() => setSelectedPaths(new Set(displayedItems.map(i => i.path)))}
+            >
+              Selecionar tudo ({displayedItems.length})
+            </button>
+            <div className="w-px h-5 bg-border" />
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setBulkMoveOpen(true)}>
+              <Move className="w-3.5 h-3.5" />
+              Mover
+            </Button>
+            <Button size="sm" variant="destructive" className="h-8 gap-1.5" onClick={() => setBulkDeletePending(true)}>
+              <Trash2 className="w-3.5 h-3.5" />
+              Excluir
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -806,6 +806,87 @@ router.post("/files/unlock-folder", requireAuth, async (req, res): Promise<void>
   res.json({ unlocked: true });
 });
 
+// POST /files/bulk-delete — delete multiple files/folders at once
+router.post("/files/bulk-delete", requireAuth, async (req, res): Promise<void> => {
+  const { paths } = req.body as { paths?: unknown };
+  if (!Array.isArray(paths) || paths.length === 0) {
+    res.status(400).json({ error: "Missing or empty paths array" });
+    return;
+  }
+
+  const deleted: string[] = [];
+  const failed: Array<{ path: string; error: string }> = [];
+
+  await Promise.all(
+    (paths as string[]).map(async (rawPath) => {
+      try {
+        const absPath = resolveStoragePath(rawPath);
+        if (absPath === STORAGE_ROOT) {
+          failed.push({ path: rawPath, error: "Cannot delete storage root" });
+          return;
+        }
+        if (!existsSync(absPath)) {
+          failed.push({ path: rawPath, error: "Not found" });
+          return;
+        }
+        await fs.rm(absPath, { recursive: true, force: true });
+        deleted.push(rawPath);
+      } catch (err) {
+        failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
+      }
+    })
+  );
+
+  res.json({ deleted, failed });
+});
+
+// POST /files/bulk-move — move multiple files/folders to a destination directory
+router.post("/files/bulk-move", requireAuth, async (req, res): Promise<void> => {
+  const { paths, destDir } = req.body as { paths?: unknown; destDir?: unknown };
+  if (!Array.isArray(paths) || paths.length === 0) {
+    res.status(400).json({ error: "Missing or empty paths array" });
+    return;
+  }
+  const targetDir = typeof destDir === "string" ? destDir : "";
+
+  const moved: string[] = [];
+  const failed: Array<{ path: string; error: string }> = [];
+
+  await Promise.all(
+    (paths as string[]).map(async (rawPath) => {
+      try {
+        const srcAbs = resolveStoragePath(rawPath);
+        if (!existsSync(srcAbs)) {
+          failed.push({ path: rawPath, error: "Source not found" });
+          return;
+        }
+        const itemName = path.basename(rawPath);
+        const destPath = targetDir ? `${targetDir}/${itemName}` : itemName;
+        const dstAbs = resolveStoragePath(destPath);
+        if (dstAbs === srcAbs) {
+          failed.push({ path: rawPath, error: "Source and destination are the same" });
+          return;
+        }
+        if (existsSync(dstAbs)) {
+          failed.push({ path: rawPath, error: "Destination already exists" });
+          return;
+        }
+        if (dstAbs.startsWith(srcAbs + path.sep)) {
+          failed.push({ path: rawPath, error: "Cannot move folder into itself" });
+          return;
+        }
+        await fs.mkdir(path.dirname(dstAbs), { recursive: true });
+        await fs.rename(srcAbs, dstAbs);
+        moved.push(rawPath);
+      } catch (err) {
+        failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
+      }
+    })
+  );
+
+  res.json({ moved, failed });
+});
+
 // POST /files/move — move a file or folder to a new location
 router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
   const { sourcePath, destPath } = req.body as { sourcePath?: string; destPath?: string };

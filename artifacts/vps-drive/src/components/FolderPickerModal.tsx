@@ -20,9 +20,10 @@ interface Props {
   sourcePath: string;
   itemName: string;
   onConfirm: (destDirPath: string) => void;
+  titleOverride?: string;
 }
 
-export function FolderPickerModal({ open, onClose, mode, sourcePath, itemName, onConfirm }: Props) {
+export function FolderPickerModal({ open, onClose, mode, sourcePath, itemName, onConfirm, titleOverride }: Props) {
   const [browsePath, setBrowsePath] = useState("");
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,6 +56,7 @@ export function FolderPickerModal({ open, onClose, mode, sourcePath, itemName, o
 
   const breadcrumbs = browsePath.split("/").filter(Boolean);
   const label = mode === "move" ? "Mover" : "Copiar";
+  const title = titleOverride ?? `${label} "${itemName}"`;
 
   const destPath = browsePath ? `${browsePath}/${itemName}` : itemName;
   const isSameDest = destPath === sourcePath;
@@ -63,9 +65,7 @@ export function FolderPickerModal({ open, onClose, mode, sourcePath, itemName, o
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            {label} "{itemName}"
-          </DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         <div className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap min-h-[20px]">
