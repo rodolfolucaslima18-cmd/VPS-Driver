@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Copy, Check, Trash2, X, ExternalLink, Lock, Download } from "lucide-react";
+import { Link, Copy, Check, Trash2, X, ExternalLink, Lock, Download, Folder, File } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,7 @@ const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 type ShareToken = {
   token: string;
   filePath: string;
+  shareType: "file" | "folder";
   createdAt: string;
   expiresAt: string | null;
   createdBy: string;
@@ -37,10 +38,11 @@ const TTL_OPTIONS: TTLOption[] = [
 type Props = {
   filePath: string;
   fileName: string;
+  isDirectory?: boolean;
   onClose: () => void;
 };
 
-export function ShareModal({ filePath, fileName, onClose }: Props) {
+export function ShareModal({ filePath, fileName, isDirectory = false, onClose }: Props) {
   const [ttlKey, setTtlKey] = useState("24h");
   const [password, setPassword] = useState("");
   const [maxDlInput, setMaxDlInput] = useState("");
@@ -69,6 +71,7 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
           expiresIn: selected.seconds,
           password: password || undefined,
           maxDownloads: maxDownloads ?? undefined,
+          shareType: isDirectory ? "folder" : "file",
         }),
       });
       if (!res.ok) {
@@ -128,6 +131,9 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
     });
   }
 
+  const ItemIcon = isDirectory ? Folder : File;
+  const headerTitle = isDirectory ? "Compartilhar pasta" : "Compartilhar arquivo";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
@@ -139,8 +145,11 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
           <div className="flex items-center gap-2 min-w-0">
             <Link className="w-5 h-5 text-primary shrink-0" />
             <div className="min-w-0">
-              <h2 className="font-semibold text-base">Compartilhar arquivo</h2>
-              <p className="text-sm text-muted-foreground truncate">{fileName}</p>
+              <h2 className="font-semibold text-base">{headerTitle}</h2>
+              <div className="flex items-center gap-1 min-w-0">
+                <ItemIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <p className="text-sm text-muted-foreground truncate">{fileName}</p>
+              </div>
             </div>
           </div>
           <button
@@ -150,6 +159,13 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isDirectory && !shareToken && (
+          <div className="flex items-start gap-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 px-3 py-2.5 text-sm text-blue-700 dark:text-blue-300">
+            <Folder className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>O link permitirá navegar pelos arquivos da pasta sem precisar baixar tudo.</span>
+          </div>
+        )}
 
         {!shareToken ? (
           <>

@@ -744,6 +744,7 @@ export default function DrivePage() {
         <ShareModal
           filePath={shareItem.path}
           fileName={shareItem.name}
+          isDirectory={shareItem.type === "directory"}
           onClose={() => setShareItem(null)}
         />
       )}

@@ -6,6 +6,7 @@ import type { ShareTokenRow } from "@workspace/db";
 export type ShareToken = {
   token: string;
   filePath: string;
+  shareType: "file" | "folder";
   createdAt: string;
   expiresAt: string | null;
   createdBy: string;
@@ -18,6 +19,7 @@ function rowToShareToken(row: ShareTokenRow): ShareToken {
   return {
     token: row.token,
     filePath: row.filePath,
+    shareType: (row.shareType as "file" | "folder") ?? "file",
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt?.toISOString() ?? null,
     createdBy: row.createdBy,
@@ -33,6 +35,7 @@ export async function createShareToken(
   createdBy: string,
   passwordHash?: string | null,
   maxDownloads?: number | null,
+  shareType: "file" | "folder" = "file",
 ): Promise<ShareToken> {
   const token = crypto.randomBytes(32).toString("hex");
   const now = new Date();
@@ -41,6 +44,7 @@ export async function createShareToken(
   const [row] = await db.insert(shareTokensTable).values({
     token,
     filePath,
+    shareType,
     createdAt: now,
     expiresAt,
     createdBy,

@@ -3,6 +3,7 @@ import { pgTable, text, timestamp, integer, index } from "drizzle-orm/pg-core";
 export const shareTokensTable = pgTable("share_tokens", {
   token: text("token").primaryKey(),
   filePath: text("file_path").notNull(),
+  shareType: text("share_type").notNull().default("file"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdBy: text("created_by").notNull(),
