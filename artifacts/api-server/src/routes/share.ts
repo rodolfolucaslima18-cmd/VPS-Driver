@@ -368,6 +368,12 @@ router.get("/share/:token", async (req, res): Promise<void> => {
     return;
   }
 
+  // Folder shares must use /share/:token/browse and /share/:token/file
+  if ((row.shareType ?? "file") === "folder") {
+    res.status(400).json({ error: "Este link é de uma pasta. Use os endpoints de navegação." });
+    return;
+  }
+
   const now = new Date();
   if (row.expiresAt && row.expiresAt < now) {
     res.status(410).json({ error: "EXPIRED", message: "Este link expirou." });
