@@ -192,18 +192,20 @@ router.get("/share/:token/browse", async (req, res): Promise<void> => {
     return;
   }
 
+  // Resolve the real path of rootAbs to guard against symlinks
+  let rootReal: string;
+  try {
+    rootReal = await fs.realpath(rootAbs);
+  } catch {
+    res.status(500).json({ error: "Erro ao acessar pasta." });
+    return;
+  }
+
   // Optional sub-path within the shared folder
   const rawSub = (req.query.sub as string | undefined) ?? "";
   let targetAbs: string;
   if (rawSub) {
-    // Normalize and security-check: must remain inside rootAbs
-    const joined = path.join(rootAbs, rawSub);
-    const resolved = path.resolve(joined);
-    if (!resolved.startsWith(rootAbs + path.sep) && resolved !== rootAbs) {
-      res.status(400).json({ error: "Caminho inválido." });
-      return;
-    }
-    targetAbs = resolved;
+    targetAbs = path.resolve(path.join(rootAbs, rawSub));
   } else {
     targetAbs = rootAbs;
   }
@@ -213,16 +215,29 @@ router.get("/share/:token/browse", async (req, res): Promise<void> => {
     return;
   }
 
-  const dirStat = await fs.stat(targetAbs);
+  // Resolve symlinks in the target and re-check containment
+  let targetReal: string;
+  try {
+    targetReal = await fs.realpath(targetAbs);
+  } catch {
+    res.status(400).json({ error: "Caminho inválido." });
+    return;
+  }
+  if (targetReal !== rootReal && !targetReal.startsWith(rootReal + path.sep)) {
+    res.status(400).json({ error: "Caminho inválido." });
+    return;
+  }
+
+  const dirStat = await fs.stat(targetReal);
   if (!dirStat.isDirectory()) {
     res.status(400).json({ error: "Caminho não é uma pasta." });
     return;
   }
 
-  const entries = await fs.readdir(targetAbs, { withFileTypes: true });
+  const entries = await fs.readdir(targetReal, { withFileTypes: true });
   const items = await Promise.all(
     entries.map(async (entry) => {
-      const entryAbs = path.join(targetAbs, entry.name);
+      const entryAbs = path.join(targetReal, entry.name);
       let size = 0;
       let modifiedAt = "";
       try {
@@ -280,22 +295,43 @@ router.get("/share/:token/file", async (req, res): Promise<void> => {
     return;
   }
 
-  // Path traversal guard
-  const joined = path.join(rootAbs, rawPath);
-  const resolved = path.resolve(joined);
-  if (!resolved.startsWith(rootAbs + path.sep) && resolved !== rootAbs) {
+  // Resolve the real path of rootAbs to guard against symlinks
+  let rootFileReal: string;
+  try {
+    rootFileReal = await fs.realpath(rootAbs);
+  } catch {
+    res.status(500).json({ error: "Erro ao acessar pasta." });
+    return;
+  }
+
+  // Lexical traversal guard first
+  const candidate = path.resolve(path.join(rootAbs, rawPath));
+  if (!candidate.startsWith(rootAbs + path.sep) && candidate !== rootAbs) {
     res.status(400).json({ error: "Caminho inválido." });
     return;
   }
 
-  if (!existsSync(resolved)) {
+  if (!existsSync(candidate)) {
     res.status(404).json({ error: "Arquivo não encontrado." });
+    return;
+  }
+
+  // Resolve symlinks and re-check containment
+  let resolvedReal: string;
+  try {
+    resolvedReal = await fs.realpath(candidate);
+  } catch {
+    res.status(400).json({ error: "Caminho inválido." });
+    return;
+  }
+  if (resolvedReal !== rootFileReal && !resolvedReal.startsWith(rootFileReal + path.sep)) {
+    res.status(400).json({ error: "Caminho inválido." });
     return;
   }
 
   let fileStat: import("fs").Stats;
   try {
-    fileStat = await fs.stat(resolved);
+    fileStat = await fs.stat(resolvedReal);
   } catch {
     res.status(500).json({ error: "Erro ao acessar arquivo." });
     return;
@@ -306,8 +342,8 @@ router.get("/share/:token/file", async (req, res): Promise<void> => {
     return;
   }
 
-  const filename = path.basename(resolved);
-  const mimeType = getMimeType(resolved);
+  const filename = path.basename(resolvedReal);
+  const mimeType = getMimeType(resolvedReal);
 
   res.setHeader("Content-Type", mimeType);
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -315,7 +351,7 @@ router.get("/share/:token/file", async (req, res): Promise<void> => {
 
   incrementDownloadCount(token).catch(() => {});
 
-  const stream = createReadStream(resolved);
+  const stream = createReadStream(resolvedReal);
   stream.on("error", () => {
     if (!res.headersSent) res.status(500).json({ error: "Erro ao ler arquivo." });
   });
