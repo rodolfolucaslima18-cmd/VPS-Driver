@@ -113,6 +113,7 @@ router.get("/share/:token/info", async (req, res): Promise<void> => {
   res.json({
     found: true,
     fileName,
+    folderName: shareType === "folder" ? fileName : undefined,
     shareType,
     isExpired,
     isLimitReached,

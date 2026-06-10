@@ -411,7 +411,11 @@ export default function SharePublicPage() {
       <UnlockForm
         token={token}
         isFolder={isFolder}
-        onUnlocked={() => setUnlocked(true)}
+        onUnlocked={() => {
+          setUnlocked(true);
+          // For file shares, trigger the download immediately after unlock
+          if (!isFolder) triggerDownload();
+        }}
       />
     );
   }

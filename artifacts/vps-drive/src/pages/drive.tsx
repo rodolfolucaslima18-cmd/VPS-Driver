@@ -1202,11 +1202,9 @@ export default function DrivePage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[160px]">
-                        {file.type === "file" && (
-                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
-                            <Share2 className="w-3.5 h-3.5" />Compartilhar
-                          </DropdownMenuItem>
-                        )}
+                        <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                          <Share2 className="w-3.5 h-3.5" />{file.type === "directory" ? "Compartilhar pasta" : "Compartilhar"}
+                        </DropdownMenuItem>
                         {file.type === "directory" && isMaster && (
                           <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
                             {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
@@ -1384,11 +1382,9 @@ export default function DrivePage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[160px]">
-                        {file.type === "file" && (
-                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
-                            <Share2 className="w-3.5 h-3.5" />Compartilhar
-                          </DropdownMenuItem>
-                        )}
+                        <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                          <Share2 className="w-3.5 h-3.5" />{file.type === "directory" ? "Compartilhar pasta" : "Compartilhar"}
+                        </DropdownMenuItem>
                         {file.type === "directory" && isMaster && (
                           <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
                             {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
