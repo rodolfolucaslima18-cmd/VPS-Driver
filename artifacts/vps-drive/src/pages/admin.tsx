@@ -98,8 +98,11 @@ export default function AdminPage() {
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateMessage, setUpdateMessage] = useState("");
+  const [updateLogs, setUpdateLogs] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
   const [installerUrlDraft, setInstallerUrlDraft] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
@@ -144,6 +147,10 @@ export default function AdminPage() {
     if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
   }, []);
 
+  const closeSse = useCallback(() => {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+  }, []);
+
   const startRestartPolling = useCallback(
     (preUpdateStartedAt: string) => {
       stopPolling();
@@ -180,17 +187,59 @@ export default function AdminPage() {
     [stopPolling, queryClient],
   );
 
-  useEffect(() => () => stopPolling(), [stopPolling]);
+  useEffect(() => () => { stopPolling(); closeSse(); }, [stopPolling, closeSse]);
+
+  // Auto-scroll log to bottom whenever new lines arrive
+  useEffect(() => {
+    if (updateStatus === "updating") {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [updateLogs, updateStatus]);
 
   const updateMutation = useMutation({
     mutationFn: () => apiFetch<{ ok: boolean; message: string }>("/api/admin/update", { method: "POST" }),
-    onSuccess: (res) => {
+    onSuccess: () => {
       setUpdateStatus("updating");
-      setUpdateMessage(res.message);
-      // Capture the pre-update startedAt; fall back to a unique value so polling
-      // will always detect a restart even if versionData wasn't loaded yet.
+      setUpdateLogs([]);
+      setUpdateMessage("Atualizando…");
+
+      // Capture pre-update startedAt and begin polling for server restart
+      // immediately — this runs in parallel with the SSE log stream so that
+      // a PM2 reload that kills the process before "done" is still detected.
       const preUpdateStartedAt = versionData?.startedAt ?? "__unknown__";
       startRestartPolling(preUpdateStartedAt);
+
+      // Open SSE stream purely for live log display
+      closeSse();
+      const sse = new EventSource(`${BASE_URL}/api/admin/update-stream`, { withCredentials: true });
+      sseRef.current = sse;
+
+      sse.addEventListener("line", (e) => {
+        const line = JSON.parse(e.data) as string;
+        setUpdateLogs((prev) => [...prev, line]);
+      });
+
+      sse.addEventListener("done", (e) => {
+        const result = JSON.parse(e.data) as string;
+        closeSse();
+        if (result === "success") {
+          // Script exited cleanly — polling is already running and will detect restart
+          setUpdateMessage("Script concluído. Aguardando reinício do servidor…");
+        } else {
+          // Script exited with error — no restart expected; stop polling and surface failure
+          stopPolling();
+          setUpdateStatus("error");
+          setUpdateMessage("O script de atualização terminou com erro. Veja o log acima.");
+        }
+      });
+
+      sse.addEventListener("error", () => {
+        // SSE connection dropped — most likely the server is in the middle of
+        // restarting (PM2 reload). This is non-fatal: polling was already started
+        // above and will detect when the new server instance is up.
+        closeSse();
+        setUpdateMessage("Servidor reiniciando. Aguardando nova instância…");
+      });
     },
     onError: (err: Error) => {
       setUpdateStatus("error");
@@ -481,14 +530,22 @@ export default function AdminPage() {
                 )}
 
                 {updateStatus === "updating" && (
-                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">Atualizando…</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{updateMessage}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Aguardando o servidor reiniciar. Isso pode levar 1–2 minutos.
+                  <div className="rounded-lg border border-border bg-muted/40 overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/60">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+                      <p className="text-sm font-medium">
+                        {updateMessage || "Atualizando…"}
                       </p>
+                    </div>
+                    <div className="h-56 overflow-y-auto bg-zinc-950 px-3 py-2">
+                      {updateLogs.length === 0 ? (
+                        <p className="text-xs text-zinc-500 italic">Aguardando saída do script…</p>
+                      ) : (
+                        updateLogs.map((line, i) => (
+                          <p key={i} className="text-xs font-mono text-zinc-200 leading-relaxed whitespace-pre-wrap break-all">{line}</p>
+                        ))
+                      )}
+                      <div ref={logEndRef} />
                     </div>
                   </div>
                 )}
@@ -503,7 +560,7 @@ export default function AdminPage() {
                       size="sm"
                       variant="ghost"
                       className="h-7 px-2 text-xs shrink-0"
-                      onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); }}
+                      onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); setUpdateLogs([]); }}
                     >
                       OK
                     </Button>
@@ -511,20 +568,29 @@ export default function AdminPage() {
                 )}
 
                 {updateStatus === "error" && (
-                  <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
-                    <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-destructive">Falha na atualização</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{updateMessage}</p>
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 overflow-hidden">
+                    <div className="flex items-start gap-3 px-4 py-3">
+                      <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-destructive">Falha na atualização</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{updateMessage}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs shrink-0"
+                        onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); setUpdateLogs([]); }}
+                      >
+                        Fechar
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs shrink-0"
-                      onClick={() => { setUpdateStatus("idle"); setUpdateMessage(""); }}
-                    >
-                      Fechar
-                    </Button>
+                    {updateLogs.length > 0 && (
+                      <div className="h-40 overflow-y-auto bg-zinc-950 px-3 py-2 border-t border-destructive/20">
+                        {updateLogs.map((line, i) => (
+                          <p key={i} className="text-xs font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap break-all">{line}</p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

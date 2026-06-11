@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { EventEmitter } from "events";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
@@ -10,6 +11,17 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 const router: IRouter = Router();
+
+// In-memory update state for SSE streaming
+interface UpdateRun {
+  running: boolean;
+  lines: string[];
+  exitCode: number | null;
+  emitter: EventEmitter;
+  startedAt: number;
+}
+
+let currentUpdate: UpdateRun | null = null;
 
 // GET /admin/users — listar todos os usuários
 router.get("/admin/users", requireMaster, async (_req, res): Promise<void> => {
@@ -314,7 +326,7 @@ router.get("/admin/version", requireMaster, (_req, res): void => {
   }
 });
 
-// POST /admin/update — inicia atualização do app via update.sh
+// POST /admin/update — inicia atualização do app via update.sh (com log em tempo real via SSE)
 router.post("/admin/update", requireMaster, (req, res): void => {
   try {
     const installDir = getInstallDir();
@@ -334,19 +346,115 @@ router.post("/admin/update", requireMaster, (req, res): void => {
       return;
     }
 
+    // If a previous update is still running, reject
+    if (currentUpdate?.running) {
+      res.status(409).json({ error: "Uma atualização já está em andamento." });
+      return;
+    }
+
+    const run: UpdateRun = {
+      running: true,
+      lines: [],
+      exitCode: null,
+      emitter: new EventEmitter(),
+      startedAt: Date.now(),
+    };
+    run.emitter.setMaxListeners(20);
+    currentUpdate = run;
+
     const child = spawn("bash", [scriptPath], {
-      detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, INSTALLER_BASE_URL: installerBaseUrl },
       cwd: installDir,
     });
-    child.unref();
 
-    res.json({ ok: true, message: "Atualização iniciada. O servidor será reiniciado em instantes." });
+    const pushLine = (line: string) => {
+      run.lines.push(line);
+      run.emitter.emit("line", line);
+    };
+
+    const handleStream = (stream: NodeJS.ReadableStream) => {
+      let buf = "";
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => {
+        buf += chunk;
+        const parts = buf.split("\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          if (part.length > 0) pushLine(part);
+        }
+      });
+      stream.on("end", () => {
+        if (buf.length > 0) { pushLine(buf); buf = ""; }
+      });
+    };
+
+    if (child.stdout) handleStream(child.stdout);
+    if (child.stderr) handleStream(child.stderr);
+
+    child.on("exit", (code) => {
+      run.running = false;
+      run.exitCode = code ?? -1;
+      run.emitter.emit("done", code ?? -1);
+    });
+
+    child.on("error", (err) => {
+      pushLine(`[erro ao iniciar script: ${err.message}]`);
+      run.running = false;
+      run.exitCode = -1;
+      run.emitter.emit("done", -1);
+    });
+
+    res.json({ ok: true, message: "Atualização iniciada." });
   } catch (err) {
     console.error("Erro ao iniciar atualização:", err);
     res.status(500).json({ error: "Erro ao iniciar atualização." });
   }
+});
+
+// GET /admin/update-stream — SSE stream do log da atualização em andamento
+router.get("/admin/update-stream", requireMaster, (req, res): void => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (event: string, data: string) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const run = currentUpdate;
+  if (!run) {
+    send("error", "Nenhuma atualização em andamento.");
+    res.end();
+    return;
+  }
+
+  // Replay buffered lines
+  for (const line of run.lines) {
+    send("line", line);
+  }
+
+  if (!run.running) {
+    send("done", run.exitCode === 0 ? "success" : "error");
+    res.end();
+    return;
+  }
+
+  const onLine = (line: string) => send("line", line);
+  const onDone = (code: number) => {
+    send("done", code === 0 ? "success" : "error");
+    res.end();
+  };
+
+  run.emitter.on("line", onLine);
+  run.emitter.once("done", onDone);
+
+  req.on("close", () => {
+    run.emitter.off("line", onLine);
+    run.emitter.off("done", onDone);
+  });
 });
 
 export default router;
