@@ -536,9 +536,16 @@ export default function AdminPage() {
                   Configuração de Atualização
                 </h2>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Informe a URL do deploy do Replit para que o botão "Atualizar agora" baixe o código
-                  mais recente (ex: <span className="font-mono">https://vps-drive.replit.app</span>).
+                  Informe a <strong>URL base</strong> do deploy do Replit — apenas o domínio, sem
+                  caminhos ou extensões. O botão "Atualizar agora" usa essa URL para baixar o
+                  código mais recente.
                 </p>
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 mb-4 space-y-1">
+                  <p className="text-xs font-medium text-foreground">Exemplos:</p>
+                  <p className="text-xs font-mono text-green-700 dark:text-green-400">✓ https://vps-drive.replit.app</p>
+                  <p className="text-xs font-mono text-destructive">✗ https://github.com/.../scripts/update.sh</p>
+                  <p className="text-xs font-mono text-destructive">✗ https://vps-drive.replit.app/api/download/update.sh</p>
+                </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();

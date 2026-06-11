@@ -21,7 +21,11 @@ ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $1${NC}"; }
 error() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
 
-INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
+# URL injetada no download pelo servidor (substitui placeholder),
+# ou passada como env var pelo painel admin (admin.ts spawn).
+# IMPORTANTE: usar ${VAR:-default} para não sobrescrever o env var já definido.
+INSTALLER_BASE_URL="${INSTALLER_BASE_URL:-__INSTALLER_BASE_URL__}"
+INSTALLER_BASE_URL="${INSTALLER_BASE_URL%/}"  # remove trailing slash
 
 echo -e "
 ${BOLD}${CYAN}╔══════════════════════════════════════╗
@@ -69,15 +73,37 @@ fi
 step "Baixando código atualizado..."
 
 if [[ -z "$INSTALLER_BASE_URL" || "$INSTALLER_BASE_URL" == "__INSTALLER_BASE_URL__" ]]; then
-  error "URL base não injetada. Use: bash <(curl -sL https://SEU_HOST/api/download/update.sh)"
+  error "URL de atualização não definida.
+  Configure a URL base do deploy do Replit no painel admin:
+  Admin → Configuração de Atualização
+  Exemplo correto: https://vps-drive.replit.app"
+fi
+
+# Validar que a URL não é um caminho de script (erro comum)
+if [[ "$INSTALLER_BASE_URL" == *".sh"* || "$INSTALLER_BASE_URL" == *"/scripts/"* || "$INSTALLER_BASE_URL" == *"github.com"* ]]; then
+  error "URL inválida: $INSTALLER_BASE_URL
+  A URL deve ser a URL BASE do deploy do Replit, sem caminhos ou extensões.
+  Exemplo correto: https://vps-drive.replit.app
+  Exemplo ERRADO:  https://github.com/.../scripts/update.sh"
 fi
 
 TMPDIR_UPDATE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
 
-echo "  Baixando de $INSTALLER_BASE_URL..."
-curl -sL --max-time 120 "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-  | tar -xzf - -C "$TMPDIR_UPDATE" 2>/dev/null
+TARBALL_URL="$INSTALLER_BASE_URL/api/download/project.tar.gz"
+echo "  Verificando acesso a $TARBALL_URL..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$TARBALL_URL" 2>/dev/null || echo "000")
+if [[ "$HTTP_CODE" != "200" ]]; then
+  error "Não foi possível acessar $TARBALL_URL (HTTP $HTTP_CODE).
+  Verifique se:
+  1. A URL configurada está correta: $INSTALLER_BASE_URL
+  2. O deploy do Replit está ativo e acessível
+  3. A URL é a URL BASE (sem /api/, sem /scripts/, sem .sh)"
+fi
+
+echo "  Baixando código..."
+curl -sL --max-time 300 "$TARBALL_URL" \
+  | tar -xzf - -C "$TMPDIR_UPDATE"
 ok "Código baixado e extraído"
 
 # ── Copiar arquivos preservando .env e dados ─────────────────
