@@ -122,13 +122,15 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/bin/docker start onlyoffice
 ExecStop=/usr/bin/docker stop onlyoffice
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable onlyoffice
+systemctl enable --now onlyoffice 2>/dev/null || systemctl enable onlyoffice
 ok "Serviço onlyoffice.service habilitado (inicia automaticamente após reboot)"
 
 # ── Aguardar OnlyOffice ficar disponível ─────────────────────
