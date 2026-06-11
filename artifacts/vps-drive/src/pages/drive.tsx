@@ -1,20 +1,17 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff, Loader2, Search, Move, Copy, Clock
+  LayoutGrid, List, Lock, KeyRound, ShieldOff
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
 import { useLocation } from "wouter";
 import {
-  useGetStorageStats,
-  getGetStorageStatsQueryKey,
-  useCreateDirectory, useDeleteItem, useRenameItem
+  useListFiles, useGetStorageStats,
+  getListFilesQueryKey, getGetStorageStatsQueryKey,
+  useUploadFiles, useCreateDirectory, useDeleteItem, useRenameItem
 } from "@workspace/api-client-react";
-import { useUploadQueue } from "@/hooks/useUploadQueue";
-import { UploadQueuePanel } from "@/components/UploadQueuePanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -42,10 +39,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FolderPickerModal } from "@/components/FolderPickerModal";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -107,22 +102,6 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { month: "short", day: "numeric" });
 }
 
-type RecentItem = { path: string; name: string; accessedAt: string; mimeType: string | null };
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return "agora";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `há ${mins} min`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `há ${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "ontem";
-  if (days < 7) return `há ${days} dias`;
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
-}
-
 function formatTotalSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -141,6 +120,7 @@ export default function DrivePage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     try { return (localStorage.getItem("vps-drive-view") as "grid" | "list") ?? "grid"; } catch { return "grid"; }
   });
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [shareItem, setShareItem] = useState<FileItem | null>(null);
   const [folderToUnlock, setFolderToUnlock] = useState<FileItem | null>(null);
@@ -150,34 +130,10 @@ export default function DrivePage() {
   const [folderToSetPwd, setFolderToSetPwd] = useState<FileItem | null>(null);
   const [setPwdValue, setSetPwdValue] = useState("");
   const [setPwdLoading, setSetPwdLoading] = useState(false);
-  const [moveAction, setMoveAction] = useState<{ item: FileItem; mode: "move" | "copy" } | null>(null);
-  const [draggingItemPath, setDraggingItemPath] = useState<string | null>(null);
-  const [dragOverFolderPath, setDragOverFolderPath] = useState<string | null>(null);
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
-  const [bulkDeletePending, setBulkDeletePending] = useState(false);
-  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
-  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
-  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
-  const [duplicateModal, setDuplicateModal] = useState<{
-    entries: Array<{ file: File; relativePath: string }>;
-    targetPath: string;
-    duplicateNames: string[];
-    onDone?: () => void;
-  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [gridCols, setGridCols] = useState<number>(() => {
-    if (typeof window === "undefined") return 4;
-    const w = window.innerWidth;
-    return w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 768 ? 4 : w >= 640 ? 3 : 2;
-  });
-  // Stable refs to the latest upload callbacks — used by native DOM listeners
-  // so the listener closure never goes stale across re-renders.
-  const doUploadRef = useRef<(fileList: FileList | null) => void>(() => {});
-  const doUploadFolderRef = useRef<(fileList: FileList | null) => void>(() => {});
   const { user } = useAuth();
   const isMaster = user?.role === "master";
   const { toast } = useToast();
@@ -193,137 +149,18 @@ export default function DrivePage() {
     }
   }
 
+  const { data: files, isLoading } = useListFiles({ path: currentPath });
   const { data: stats } = useGetStorageStats();
 
+  const uploadMutation = useUploadFiles();
   const mkdirMutation = useCreateDirectory();
   const deleteMutation = useDeleteItem();
   const renameMutation = useRenameItem();
 
-  // ── Pagination state ──────────────────────────────────────────────────────
-  const PAGE_LIMIT = 200;
-  const [displayedItems, setDisplayedItems] = useState<FileItem[]>([]);
-  const [totalItems,     setTotalItems]     = useState(0);
-  const [currentPage,   setCurrentPage]    = useState(1);
-  const [isLoadingPage1, setIsLoadingPage1] = useState(false);
-  const [isLoadingMore,  setIsLoadingMore]  = useState(false);
-  const [hasMore,        setHasMore]        = useState(false);
-
-  // ── Search state ──────────────────────────────────────────────────────────
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Debounce searchInput → searchQuery (300ms)
-  useEffect(() => {
-    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
-    return () => clearTimeout(t);
-  }, [searchInput]);
-
-  const fetchFilesPage = useCallback(async (path: string, page: number, search = "") => {
-    const isFirst = page === 1;
-    if (isFirst) setIsLoadingPage1(true);
-    else         setIsLoadingMore(true);
-    try {
-      const params = new URLSearchParams({ limit: String(PAGE_LIMIT), page: String(page) });
-      if (path)   params.append("path", path);
-      if (search) params.append("search", search);
-      const resp = await fetch(`${BASE_URL}/api/files?${params}`, { credentials: "include" });
-      if (!resp.ok) {
-        console.error("[VPS Drive] fetchFilesPage failed:", resp.status, resp.statusText);
-        toast({ title: "Erro ao carregar arquivos", description: `HTTP ${resp.status}`, variant: "destructive" });
-        return;
-      }
-      const data = (await resp.json()) as {
-        items: FileItem[];
-        total: number;
-        page: number;
-        totalPages: number;
-      };
-      setDisplayedItems(prev => isFirst ? data.items : [...prev, ...data.items]);
-      setTotalItems(data.total);
-      setCurrentPage(data.page);
-      setHasMore(data.page < data.totalPages);
-    } catch (err) {
-      console.error("[VPS Drive] fetchFilesPage error:", err);
-    } finally {
-      if (isFirst) setIsLoadingPage1(false);
-      else         setIsLoadingMore(false);
-    }
-  }, [toast]);
-
-  // Fetch page 1 whenever the current folder changes — also clear search and selection
-  useEffect(() => {
-    setSearchInput("");
-    setSearchQuery("");
-    setDisplayedItems([]);
-    setCurrentPage(1);
-    setHasMore(false);
-    setTotalItems(0);
-    setSelectedPaths(new Set());
-    fetchFilesPage(currentPath, 1);
-  }, [currentPath, fetchFilesPage]);
-
-  // Re-fetch page 1 whenever searchQuery changes (after debounce)
-  useEffect(() => {
-    setDisplayedItems([]);
-    setCurrentPage(1);
-    setHasMore(false);
-    setTotalItems(0);
-    fetchFilesPage(currentPath, 1, searchQuery);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
-
-  const fetchRecent = useCallback(async () => {
-    try {
-      const resp = await fetch(`${BASE_URL}/api/files/recent`, { credentials: "include" });
-      if (!resp.ok) return;
-      const data = await resp.json() as RecentItem[];
-      setRecentItems(data);
-    } catch {
-      // Non-critical
-    }
-  }, []);
-
-  // Fetch recent items on mount
-  useEffect(() => { fetchRecent(); }, [fetchRecent]);
-
   const invalidate = useCallback(() => {
-    // Reset pagination state but keep existing items visible while refreshing —
-    // prevents the list from going blank if the refresh fetch is slow or fails.
-    setCurrentPage(1);
-    setHasMore(false);
-    setTotalItems(0);
-    fetchFilesPage(currentPath, 1, searchQuery);
+    queryClient.invalidateQueries({ queryKey: getListFilesQueryKey({ path: currentPath }) });
     queryClient.invalidateQueries({ queryKey: getGetStorageStatsQueryKey() });
-    fetchRecent();
-  }, [queryClient, currentPath, fetchFilesPage, searchQuery, fetchRecent]);
-
-  const uploadQueue = useUploadQueue({ onBatchComplete: invalidate });
-
-  // Check for duplicates against currently-displayed items before enqueuing.
-  // Shows a modal asking the user to overwrite or skip if any match found.
-  const checkAndEnqueue = useCallback((
-    entries: Array<{ file: File; relativePath: string }>,
-    targetPath: string,
-    onDone?: () => void,
-  ) => {
-    if (entries.length === 0) { onDone?.(); return; }
-    const existingNames = new Set(displayedItems.map((i) => i.name));
-    const duplicateNames: string[] = [];
-    const seenTops = new Set<string>();
-    for (const entry of entries) {
-      const topLevel = entry.relativePath.split("/")[0];
-      if (!seenTops.has(topLevel) && existingNames.has(topLevel)) {
-        duplicateNames.push(topLevel);
-        seenTops.add(topLevel);
-      }
-    }
-    if (duplicateNames.length === 0) {
-      uploadQueue.enqueue(entries, targetPath);
-      onDone?.();
-      return;
-    }
-    setDuplicateModal({ entries, targetPath, duplicateNames, onDone });
-  }, [displayedItems, uploadQueue]);
+  }, [queryClient, currentPath]);
 
   // Focus rename input when rename mode activates
   useEffect(() => {
@@ -339,220 +176,70 @@ export default function DrivePage() {
     }
   }, [newFolderMode]);
 
-  // Enqueue files with their relative paths (used for folders, drag-drop with subfolders, paste)
-  const doUploadWithPaths = useCallback((
-    entries: Array<{file: File; relativePath: string}>,
-    onDone?: () => void,
-  ) => {
-    if (entries.length === 0) return;
-    checkAndEnqueue(entries, currentPath, onDone);
-  }, [currentPath, checkAndEnqueue]);
-
-  // Enqueue a flat FileList (plain file-picker or drag-drop without folders)
-  const doUpload = useCallback((fileList: FileList | null) => {
+  const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const entries = Array.from(fileList).map((f) => ({ file: f, relativePath: f.name }));
-    checkAndEnqueue(entries, currentPath, () => {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    });
-  }, [currentPath, checkAndEnqueue]);
-
-  const doUploadFolder = useCallback((fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) {
-      toast({
-        title: "Pasta vazia",
-        description: "A pasta selecionada não contém arquivos.",
-        variant: "destructive",
+    const files = Array.from(fileList);
+    setUploadProgress(`Enviando ${files.length} arquivo${files.length > 1 ? "s" : ""}…`);
+    try {
+      await uploadMutation.mutateAsync({
+        data: {
+          files,
+          ...(currentPath ? { path: currentPath } : {}),
+        },
       });
-      if (folderInputRef.current) folderInputRef.current.value = "";
-      return;
+      invalidate();
+      toast({ title: "Envio concluído", description: `${files.length} arquivo(s) enviado(s).` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
+    } finally {
+      setUploadProgress(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }, [currentPath, uploadMutation, invalidate, toast]);
+
+  const doUploadWithPaths = useCallback(async (entries: Array<{file: File; relativePath: string}>) => {
+    if (entries.length === 0) return;
+    const total = entries.length;
+    const BATCH = 20;
+    try {
+      for (let i = 0; i < entries.length; i += BATCH) {
+        const batch = entries.slice(i, i + BATCH);
+        const sent = Math.min(i + BATCH, total);
+        setUploadProgress(`Enviando ${sent} de ${total} arquivo${total > 1 ? "s" : ""}…`);
+        const formData = new FormData();
+        if (currentPath) formData.append("path", currentPath);
+        batch.forEach(({ file }) => formData.append("files", file));
+        formData.append("relativePaths", JSON.stringify(batch.map((e) => e.relativePath)));
+        const resp = await fetch(`${BASE_URL}/api/files/upload`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error((data as {error?: string}).error ?? `HTTP ${resp.status}`);
+        }
+      }
+      invalidate();
+      toast({ title: "Envio concluído", description: `${total} arquivo(s) enviado(s).` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha no envio", description: msg, variant: "destructive" });
+    } finally {
+      setUploadProgress(null);
+      if (folderInputRef.current) folderInputRef.current.value = "";
+    }
+  }, [currentPath, invalidate, toast]);
+
+  const doUploadFolder = useCallback(async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
     const entries = Array.from(fileList).map((file) => ({
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    checkAndEnqueue(entries, currentPath, () => {
-      if (folderInputRef.current) folderInputRef.current.value = "";
-    });
-  }, [currentPath, checkAndEnqueue, toast]);
-
-  const toggleSelection = useCallback((itemPath: string) => {
-    setSelectedPaths(prev => {
-      const next = new Set(prev);
-      if (next.has(itemPath)) next.delete(itemPath);
-      else next.add(itemPath);
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => setSelectedPaths(new Set()), []);
-
-  // ── Grid column tracking (matches Tailwind sm/md/lg/xl breakpoints) ──────────
-  useEffect(() => {
-    const update = () => {
-      const w = window.innerWidth;
-      setGridCols(w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 768 ? 4 : w >= 640 ? 3 : 2);
-    };
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  // ── Grid rows: flat displayedItems grouped by column count ───────────────────
-  const gridRows = useMemo(() => {
-    const rows: FileItem[][] = [];
-    for (let i = 0; i < displayedItems.length; i += gridCols) {
-      rows.push(displayedItems.slice(i, i + gridCols) as FileItem[]);
-    }
-    return rows;
-  }, [displayedItems, gridCols]);
-
-  // ── Virtualizers ─────────────────────────────────────────────────────────────
-  const listVirtualizer = useVirtualizer({
-    count: displayedItems.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 40,
-    overscan: 10,
-  });
-
-  const gridVirtualizer = useVirtualizer({
-    count: gridRows.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 154,
-    overscan: 3,
-  });
-
-  const doBulkDelete = useCallback(async () => {
-    setBulkDeletePending(false);
-    const paths = Array.from(selectedPaths);
-    try {
-      const resp = await fetch(`${BASE_URL}/api/files/bulk-delete`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paths }),
-      });
-      const result = await resp.json() as { deleted: string[]; failed: Array<{ path: string; error: string }> };
-      setSelectedPaths(new Set());
-      invalidate();
-      const failedCount = result.failed?.length ?? 0;
-      if (failedCount > 0) {
-        toast({ title: `${result.deleted.length} excluído(s), ${failedCount} falhou(ram)`, variant: "destructive" });
-      } else {
-        toast({ title: `${result.deleted.length} item(ns) excluído(s)` });
-      }
-    } catch (err) {
-      toast({ title: "Erro ao excluir", description: err instanceof Error ? err.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedPaths, invalidate, toast]);
-
-  const doBulkMove = useCallback(async (destDir: string) => {
-    setBulkMoveOpen(false);
-    const paths = Array.from(selectedPaths);
-    try {
-      const resp = await fetch(`${BASE_URL}/api/files/bulk-move`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paths, destDir }),
-      });
-      const result = await resp.json() as { moved: string[]; failed: Array<{ path: string; error: string }> };
-      setSelectedPaths(new Set());
-      invalidate();
-      const failedCount = result.failed?.length ?? 0;
-      const dirLabel = destDir || "Início";
-      if (failedCount > 0) {
-        toast({ title: `${result.moved.length} movido(s) para "${dirLabel}", ${failedCount} falhou(ram)`, variant: "destructive" });
-      } else {
-        toast({ title: `${result.moved.length} item(ns) movido(s) para "${dirLabel}"` });
-      }
-    } catch (err) {
-      toast({ title: "Erro ao mover", description: err instanceof Error ? err.message : "Erro", variant: "destructive" });
-    }
-  }, [selectedPaths, invalidate, toast]);
-
-  const doMoveOrCopy = useCallback(async (
-    mode: "move" | "copy",
-    sourcePath: string,
-    destDirPath: string,
-    itemName: string,
-  ) => {
-    const destPath = destDirPath ? `${destDirPath}/${itemName}` : itemName;
-    try {
-      const resp = await fetch(`${BASE_URL}/api/files/${mode}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourcePath, destPath }),
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
-      }
-      invalidate();
-      const dirLabel = destDirPath || "Início";
-      toast({
-        title: mode === "move" ? `Movido para "${dirLabel}"` : `Copiado para "${dirLabel}"`,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      toast({ title: mode === "move" ? "Erro ao mover" : "Erro ao copiar", description: msg, variant: "destructive" });
-    }
-  }, [invalidate, toast]);
-
-  // Esc key clears selection
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedPaths(new Set()); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  // Keep stable refs pointing to the latest callbacks so native DOM listeners
-  // never capture a stale closure.
-  useEffect(() => { doUploadRef.current = doUpload; }, [doUpload]);
-  useEffect(() => { doUploadFolderRef.current = doUploadFolder; }, [doUploadFolder]);
-
-  // Attach native 'change' listeners to file inputs.
-  // React's synthetic onChange can silently fail to fire for programmatically-
-  // triggered file inputs (especially webkitdirectory) in some browsers.
-  useEffect(() => {
-    const input = fileInputRef.current;
-    if (!input) return;
-    const handler = () => {
-      doUploadRef.current(input.files);
-    };
-    input.addEventListener("change", handler);
-    return () => input.removeEventListener("change", handler);
-  }, []);
-
-  useEffect(() => {
-    const input = folderInputRef.current;
-    if (!input) return;
-    const handler = () => {
-      doUploadFolderRef.current(input.files);
-    };
-    input.addEventListener("change", handler);
-    return () => input.removeEventListener("change", handler);
-  }, []);
-
-  // Paste-to-upload: files copied from the OS file manager or web
-  useEffect(() => {
-    const handler = (e: ClipboardEvent) => {
-      // Ignore paste events inside text inputs / textareas / contenteditable
-      const target = e.target as HTMLElement | null;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable
-      ) return;
-      const files = e.clipboardData?.files;
-      if (!files || files.length === 0) return;
-      e.preventDefault();
-      const entries = Array.from(files).map((f) => ({ file: f, relativePath: f.name }));
-      checkAndEnqueue(entries, currentPath);
-    };
-    window.addEventListener("paste", handler);
-    return () => window.removeEventListener("paste", handler);
-  }, [currentPath, checkAndEnqueue]);
+    await doUploadWithPaths(entries);
+  }, [doUploadWithPaths]);
 
   const doMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -666,18 +353,12 @@ export default function DrivePage() {
     }
   }, [renamingPath, renamingValue, renameMutation, invalidate, toast]);
 
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    // Only show the upload overlay for files dragged from the OS, not internal item drags
-    if (!e.dataTransfer.types.includes("application/vps-drive-path")) setIsDragging(true);
-  };
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const onDragLeave = (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
 
   const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    // Internal item-to-folder drag is handled by the folder item's own onDrop handler
-    if (e.dataTransfer.types.includes("application/vps-drive-path")) return;
 
     const items = Array.from(e.dataTransfer.items ?? []);
     const hasFolder = items.some((item) => {
@@ -739,12 +420,11 @@ export default function DrivePage() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <FilePreviewSheet file={previewItem} onClose={() => { setPreviewItem(null); setTimeout(fetchRecent, 500); }} onRefresh={invalidate} />
+      <FilePreviewSheet file={previewItem} onClose={() => setPreviewItem(null)} onRefresh={invalidate} />
       {shareItem && (
         <ShareModal
           filePath={shareItem.path}
           fileName={shareItem.name}
-          isDirectory={shareItem.type === "directory"}
           onClose={() => setShareItem(null)}
         />
       )}
@@ -831,115 +511,13 @@ export default function DrivePage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Move / Copy folder picker (single item) */}
-      <FolderPickerModal
-        open={!!moveAction}
-        onClose={() => setMoveAction(null)}
-        mode={moveAction?.mode ?? "move"}
-        sourcePath={moveAction?.item.path ?? ""}
-        itemName={moveAction?.item.name ?? ""}
-        onConfirm={(destDirPath) => {
-          if (!moveAction) return;
-          doMoveOrCopy(moveAction.mode, moveAction.item.path, destDirPath, moveAction.item.name);
-          setMoveAction(null);
-        }}
-      />
-
-      {/* Bulk move folder picker */}
-      <FolderPickerModal
-        open={bulkMoveOpen}
-        onClose={() => setBulkMoveOpen(false)}
-        mode="move"
-        sourcePath=""
-        itemName={`${selectedPaths.size} ${selectedPaths.size === 1 ? "item" : "itens"}`}
-        titleOverride={`Mover ${selectedPaths.size} ${selectedPaths.size === 1 ? "item" : "itens"}`}
-        onConfirm={(destDirPath) => doBulkMove(destDirPath)}
-      />
-
-      {/* Bulk delete confirmation */}
-      <AlertDialog open={bulkDeletePending} onOpenChange={(open) => { if (!open) setBulkDeletePending(false); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir {selectedPaths.size} {selectedPaths.size === 1 ? "item" : "itens"}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação não pode ser desfeita. {selectedPaths.size === 1 ? "O item selecionado será excluído" : `Os ${selectedPaths.size} itens selecionados serão excluídos`} permanentemente.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={doBulkDelete}
-            >
-              Excluir tudo
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Duplicate files dialog */}
-      <AlertDialog open={!!duplicateModal} onOpenChange={(open) => { if (!open) setDuplicateModal(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Arquivos já existem</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  {duplicateModal?.duplicateNames.length === 1
-                    ? <>O item <strong>"{duplicateModal.duplicateNames[0]}"</strong> já existe nesta pasta.</>
-                    : <><strong>{duplicateModal?.duplicateNames.length} itens</strong> já existem nesta pasta:</>
-                  }
-                </p>
-                {duplicateModal && duplicateModal.duplicateNames.length > 1 && (
-                  <ul className="max-h-32 overflow-y-auto text-xs text-muted-foreground space-y-0.5 pl-1">
-                    {duplicateModal.duplicateNames.map((name) => (
-                      <li key={name} className="truncate">• {name}</li>
-                    ))}
-                  </ul>
-                )}
-                <p className="pt-1">O que deseja fazer?</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel onClick={() => setDuplicateModal(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground shadow-none"
-              onClick={() => {
-                if (!duplicateModal) return;
-                const dupSet = new Set(duplicateModal.duplicateNames);
-                const filtered = duplicateModal.entries.filter(
-                  (e) => !dupSet.has(e.relativePath.split("/")[0])
-                );
-                if (filtered.length > 0) {
-                  uploadQueue.enqueue(filtered, duplicateModal.targetPath);
-                }
-                duplicateModal.onDone?.();
-                setDuplicateModal(null);
-              }}
-            >
-              Pular duplicatas
-            </AlertDialogAction>
-            <AlertDialogAction
-              onClick={() => {
-                if (!duplicateModal) return;
-                uploadQueue.enqueue(duplicateModal.entries, duplicateModal.targetPath);
-                duplicateModal.onDone?.();
-                setDuplicateModal(null);
-              }}
-            >
-              Sobrescrever
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
         className="hidden"
+        onChange={(e) => doUpload(e.target.files)}
       />
       <input
         ref={folderInputRef}
@@ -948,6 +526,7 @@ export default function DrivePage() {
         webkitdirectory="true"
         multiple
         className="hidden"
+        onChange={(e) => doUploadFolder(e.target.files)}
       />
 
       {/* Sidebar */}
@@ -971,38 +550,23 @@ export default function DrivePage() {
               </p>
             </div>
 
-            {recentItems.length > 0 && (
+            {stats && stats.recentFiles.length > 0 && (
               <div className="pt-4 border-t border-border">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Recentes</p>
-                <div className="space-y-0.5">
-                  {recentItems.slice(0, 10).map((item) => {
-                    const parentDir = item.path.includes("/")
-                      ? item.path.substring(0, item.path.lastIndexOf("/"))
-                      : "";
-                    return (
-                      <button
-                        key={item.path}
-                        onClick={() => {
-                          setHighlightedPath(item.path);
-                          setTimeout(() => setHighlightedPath((p) => p === item.path ? null : p), 4000);
-                          setCurrentPath(parentDir);
-                          if (isPreviewable(item.mimeType) || isOfficeFile({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem)) {
-                            setPreviewItem({ name: item.name, path: item.path, type: "file", size: 0, modifiedAt: item.accessedAt, mimeType: item.mimeType } as FileItem);
-                          }
-                          fetchRecent();
-                        }}
-                        className="w-full text-left flex items-center gap-2 py-1 px-1 rounded hover:bg-accent/60 transition-colors group"
-                        title={item.path}
-                      >
-                        <File className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="flex-1 truncate text-xs text-muted-foreground group-hover:text-foreground transition-colors">{item.name}</span>
-                        <span className="text-[10px] text-muted-foreground/60 shrink-0 whitespace-nowrap flex items-center gap-0.5">
-                          <Clock className="w-2.5 h-2.5" />
-                          {formatRelativeTime(item.accessedAt)}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div className="space-y-1">
+                  {stats.recentFiles.slice(0, 5).map((f) => (
+                    <button
+                      key={f.path}
+                      onClick={() => {
+                        if (isPreviewable(f.mimeType ?? null) || isOfficeFile(f as FileItem)) setPreviewItem(f as FileItem);
+                        else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(f.path)}`, "_blank");
+                      }}
+                      className="w-full text-left flex items-center gap-2 py-1 px-1 rounded text-sm hover:bg-accent/60 transition-colors"
+                    >
+                      <File className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate text-muted-foreground">{f.name}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -1049,28 +613,10 @@ export default function DrivePage() {
             ))}
           </div>
 
-          {/* Search input */}
-          <div className="relative mx-3 flex-1 max-w-xs hidden sm:block">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Buscar nesta pasta…"
-              className="w-full h-8 pl-8 pr-7 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            {searchInput && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setSearchInput("")}
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            {uploadProgress && (
+              <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>
             )}
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
-
             <button
               className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
               title={viewMode === "grid" ? "Mudar para lista" : "Mudar para grade"}
@@ -1109,15 +655,7 @@ export default function DrivePage() {
         )}
 
         {/* File grid */}
-        <div
-          ref={scrollContainerRef}
-          className="flex-1 overflow-auto p-5"
-          onClick={(e) => {
-            if (selectedPaths.size === 0) return;
-            if ((e.target as HTMLElement).closest("[data-selection-item]")) return;
-            setSelectedPaths(new Set());
-          }}
-        >
+        <div className="flex-1 overflow-auto p-5">
           {/* New folder input row */}
           {newFolderMode && (
             <div className="mb-4 flex items-center gap-2 p-2 rounded-lg border border-primary/40 bg-card w-fit">
@@ -1135,7 +673,7 @@ export default function DrivePage() {
             </div>
           )}
 
-          {isLoadingPage1 ? (
+          {isLoading ? (
             viewMode === "grid" ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                 {[...Array(12)].map((_, i) => (
@@ -1149,48 +687,21 @@ export default function DrivePage() {
                 ))}
               </div>
             )
-          ) : displayedItems.length > 0 ? (
+          ) : files && files.length > 0 ? (
             viewMode === "grid" ? (
               /* ── Grid view ── */
-              <>
-              <div style={{ height: `${gridVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                {gridVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowItems = gridRows[virtualRow.index];
-                  if (!rowItems) return null;
-                  return (
-                    <div
-                      key={virtualRow.index}
-                      style={{ position: "absolute", top: `${virtualRow.start}px`, width: "100%", display: "grid", gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gap: "12px" }}
-                    >
-                {rowItems.map((file) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                {files.map((file) => (
                   <div
                     key={file.path}
-                    draggable={renamingPath !== file.path}
-                    onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/vps-drive-path", file.path); setDraggingItemPath(file.path); }}
-                    onDragEnd={() => { setDraggingItemPath(null); setDragOverFolderPath(null); }}
-                    onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
-                    onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
-                    onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
-                    data-selection-item
-                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all cursor-pointer select-none ${highlightedPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/40" : selectedPaths.has(file.path) ? "border-primary bg-primary/10" : dragOverFolderPath === file.path ? "border-primary bg-primary/10 ring-2 ring-primary/30" : "border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
-                      if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
-                      else { window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank"); setTimeout(fetchRecent, 500); }
+                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
                   >
-                    {/* Selection checkbox */}
-                    <button
-                      data-nomenu
-                      className={`absolute top-1.5 left-1.5 z-10 p-0.5 rounded transition-opacity ${selectedPaths.has(file.path) || selectedPaths.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                      onClick={(e) => { e.stopPropagation(); toggleSelection(file.path); }}
-                    >
-                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.has(file.path) ? "bg-primary border-primary" : "border-muted-foreground bg-card"}`}>
-                        {selectedPaths.has(file.path) && <Check className="w-2.5 h-2.5 text-primary-foreground" strokeWidth={3} />}
-                      </div>
-                    </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -1202,23 +713,17 @@ export default function DrivePage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[160px]">
-                        <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
-                          <Share2 className="w-3.5 h-3.5" />{file.type === "directory" ? "Compartilhar pasta" : "Compartilhar"}
-                        </DropdownMenuItem>
+                        {file.type === "file" && (
+                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                            <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
                         {file.type === "directory" && isMaster && (
                           <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
                             {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "move" })}>
-                          <Move className="w-3.5 h-3.5" />Mover para...
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "copy" })}>
-                          <Copy className="w-3.5 h-3.5" />Copiar para...
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>
@@ -1262,78 +767,29 @@ export default function DrivePage() {
                     </div>
                   </div>
                 ))}
-                    </div>
-                  );
-                })}
               </div>
-              {hasMore && (
-                <div className="flex flex-col items-center gap-2 pt-4">
-                  <p className="text-xs text-muted-foreground">
-                    Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
-                  </p>
-                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1, searchQuery)} disabled={isLoadingMore}>
-                    {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
-                  </Button>
-                </div>
-              )}
-              </>
             ) : (
               /* ── List view ── */
-              <>
               <div className="flex flex-col rounded-xl border border-border overflow-hidden">
                 {/* Header */}
-                <div className="grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
-                  <button
-                    data-nomenu
-                    className="flex items-center justify-center"
-                    onClick={(e) => { e.stopPropagation(); if (selectedPaths.size === displayedItems.length && displayedItems.length > 0) setSelectedPaths(new Set()); else setSelectedPaths(new Set(displayedItems.map(i => i.path))); }}
-                  >
-                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.size > 0 && selectedPaths.size === displayedItems.length ? "bg-primary border-primary" : selectedPaths.size > 0 ? "border-primary" : "border-muted-foreground"}`}>
-                      {selectedPaths.size > 0 && selectedPaths.size === displayedItems.length && <Check className="w-2 h-2 text-primary-foreground" strokeWidth={3} />}
-                      {selectedPaths.size > 0 && selectedPaths.size < displayedItems.length && <div className="w-2 h-0.5 bg-primary rounded" />}
-                    </div>
-                  </button>
+                <div className="grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 bg-muted/40 border-b border-border text-xs font-medium text-muted-foreground select-none">
+                  <span className="w-5" />
                   <span>Nome</span>
                   <span className="text-right">Tamanho</span>
                   <span className="text-right">Modificado</span>
                   <span />
                 </div>
-                <div style={{ height: `${listVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                {listVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const file = displayedItems[virtualRow.index];
-                  if (!file) return null;
-                  return (
+                {files.map((file, idx) => (
                   <div
                     key={file.path}
-                    ref={listVirtualizer.measureElement}
-                    data-index={virtualRow.index}
-                    style={{ position: "absolute", top: `${virtualRow.start}px`, width: "100%" }}
-                    draggable={renamingPath !== file.path}
-                    onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/vps-drive-path", file.path); setDraggingItemPath(file.path); }}
-                    onDragEnd={() => { setDraggingItemPath(null); setDragOverFolderPath(null); }}
-                    onDragOver={(e) => { if (file.type !== "directory") return; if (!e.dataTransfer.types.includes("application/vps-drive-path")) return; if (draggingItemPath === file.path || file.path.startsWith((draggingItemPath ?? "\0") + "/")) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOverFolderPath(file.path); }}
-                    onDragLeave={(e) => { if (file.type === "directory" && !e.currentTarget.contains(e.relatedTarget as Node) && dragOverFolderPath === file.path) setDragOverFolderPath(null); }}
-                    onDrop={(e) => { if (file.type !== "directory") return; e.preventDefault(); e.stopPropagation(); const srcPath = e.dataTransfer.getData("application/vps-drive-path"); if (!srcPath || srcPath === file.path || file.path.startsWith(srcPath + "/")) return; setDragOverFolderPath(null); setDraggingItemPath(null); const srcItem = displayedItems.find(i => i.path === srcPath); if (srcItem) doMoveOrCopy("move", srcPath, file.path, srcItem.name); }}
-                    data-selection-item
-                    className={`group grid grid-cols-[16px_auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer transition-colors select-none${virtualRow.index > 0 ? " border-t border-border/50" : ""} ${highlightedPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary/60" : selectedPaths.has(file.path) ? "bg-primary/10" : dragOverFolderPath === file.path ? "bg-primary/10 ring-1 ring-inset ring-primary" : "hover:bg-accent/40"}${draggingItemPath === file.path ? " opacity-40" : ""}`}
+                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
-                      if (selectedPaths.size > 0) { toggleSelection(file.path); return; }
                       if (file.type === "directory") openFolder(file as FileItem);
                       else if (isPreviewable(file.mimeType ?? null) || isOfficeFile(file as FileItem)) setPreviewItem(file as FileItem);
-                      else { window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank"); setTimeout(fetchRecent, 500); }
+                      else window.open(`${BASE_URL}/api/files/download?path=${encodeURIComponent(file.path)}`, "_blank");
                     }}
                   >
-                    {/* Checkbox */}
-                    <button
-                      data-nomenu
-                      className={`flex items-center justify-center transition-opacity ${selectedPaths.has(file.path) || selectedPaths.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                      onClick={(e) => { e.stopPropagation(); toggleSelection(file.path); }}
-                    >
-                      <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${selectedPaths.has(file.path) ? "bg-primary border-primary" : "border-muted-foreground"}`}>
-                        {selectedPaths.has(file.path) && <Check className="w-2 h-2 text-primary-foreground" strokeWidth={3} />}
-                      </div>
-                    </button>
                     {/* Icon */}
                     {file.type === "directory" ? (
                       <div className="relative shrink-0">
@@ -1382,23 +838,17 @@ export default function DrivePage() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[160px]">
-                        <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
-                          <Share2 className="w-3.5 h-3.5" />{file.type === "directory" ? "Compartilhar pasta" : "Compartilhar"}
-                        </DropdownMenuItem>
+                        {file.type === "file" && (
+                          <DropdownMenuItem className="gap-2" onClick={() => setShareItem(file as FileItem)}>
+                            <Share2 className="w-3.5 h-3.5" />Compartilhar
+                          </DropdownMenuItem>
+                        )}
                         {file.type === "directory" && isMaster && (
                           <DropdownMenuItem className="gap-2" onClick={() => { setFolderToSetPwd(file as FileItem); setSetPwdValue(""); }}>
                             {(file as FileItem).hasPassword ? <ShieldOff className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "move" })}>
-                          <Move className="w-3.5 h-3.5" />Mover para...
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="gap-2" onClick={() => setMoveAction({ item: file as FileItem, mode: "copy" })}>
-                          <Copy className="w-3.5 h-3.5" />Copiar para...
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>
@@ -1408,101 +858,32 @@ export default function DrivePage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  );
-                })}
-                </div>
+                ))}
               </div>
-              {hasMore && (
-                <div className="flex flex-col items-center gap-2 pt-4">
-                  <p className="text-xs text-muted-foreground">
-                    Exibindo {displayedItems.length.toLocaleString("pt-BR")} de {totalItems.toLocaleString("pt-BR")} itens
-                  </p>
-                  <Button variant="outline" onClick={() => fetchFilesPage(currentPath, currentPage + 1, searchQuery)} disabled={isLoadingMore}>
-                    {isLoadingMore ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Carregando...</> : "Carregar mais"}
-                  </Button>
-                </div>
-              )}
-            </>
-          )
+            )
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-3 text-muted-foreground min-h-[300px]">
-              {searchQuery ? (
-                <>
-                  <div className="p-5 rounded-full bg-accent/50">
-                    <Search className="w-10 h-10 opacity-40" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground">Nenhum resultado encontrado</p>
-                    <p className="text-sm mt-0.5">Nenhum arquivo corresponde a "{searchQuery}"</p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setSearchInput("")}>
-                    <X className="w-3.5 h-3.5 mr-1.5" />
-                    Limpar busca
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <div className="p-5 rounded-full bg-accent/50">
-                    <HardDrive className="w-10 h-10 opacity-40" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground">Esta pasta está vazia</p>
-                    <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
-                      <FolderUp className="w-3.5 h-3.5 mr-1.5" />
-                      Enviar pasta
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                      <Upload className="w-3.5 h-3.5 mr-1.5" />
-                      Enviar arquivos
-                    </Button>
-                  </div>
-                </>
-              )}
+              <div className="p-5 rounded-full bg-accent/50">
+                <HardDrive className="w-10 h-10 opacity-40" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Esta pasta está vazia</p>
+                <p className="text-sm mt-0.5">Solte arquivos aqui ou clique em Enviar</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
+                  <FolderUp className="w-3.5 h-3.5 mr-1.5" />
+                  Enviar pasta
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="w-3.5 h-3.5 mr-1.5" />
+                  Enviar arquivos
+                </Button>
+              </div>
             </div>
           )}
         </div>
-
-        {/* Floating bulk action bar */}
-        {selectedPaths.size > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-card border border-border shadow-2xl">
-            <button
-              className="p-1 rounded hover:bg-accent transition-colors"
-              onClick={() => setSelectedPaths(new Set())}
-              title="Cancelar seleção"
-            >
-              <X className="w-4 h-4 text-muted-foreground" />
-            </button>
-            <span className="text-sm font-medium">
-              {selectedPaths.size} selecionado{selectedPaths.size > 1 ? "s" : ""}
-            </span>
-            <button
-              className="text-xs text-primary hover:underline whitespace-nowrap"
-              onClick={() => setSelectedPaths(new Set(displayedItems.map(i => i.path)))}
-            >
-              Selecionar tudo ({displayedItems.length})
-            </button>
-            <div className="w-px h-5 bg-border" />
-            <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setBulkMoveOpen(true)}>
-              <Move className="w-3.5 h-3.5" />
-              Mover
-            </Button>
-            <Button size="sm" variant="destructive" className="h-8 gap-1.5" onClick={() => setBulkDeletePending(true)}>
-              <Trash2 className="w-3.5 h-3.5" />
-              Excluir
-            </Button>
-          </div>
-        )}
       </div>
-
-      <UploadQueuePanel
-        items={uploadQueue.items}
-        onRetry={uploadQueue.retryItem}
-        onClearDone={uploadQueue.clearDone}
-        onDismiss={uploadQueue.clearAll}
-      />
     </div>
   );
 }

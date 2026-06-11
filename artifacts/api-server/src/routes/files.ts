@@ -1,23 +1,21 @@
 import express, { Router, type IRouter } from "express";
 import path from "path";
 import fs from "fs/promises";
-import { createReadStream, existsSync, mkdirSync } from "fs";
+import { createReadStream, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import multer from "multer";
-import { eq, lt, inArray, and, desc, asc, not, like, ilike, or, count } from "drizzle-orm";
-import { db, fileTokensTable, folderPasswordsTable, fileAccessLogTable, fileIndexTable } from "@workspace/db";
+import { eq, lt, inArray } from "drizzle-orm";
+import { db, fileTokensTable, folderPasswordsTable } from "@workspace/db";
 import {
   STORAGE_ROOT,
   ensureStorageRoot,
   resolveStoragePath,
-  toRelativePath,
   buildFileItem,
   getStorageStats,
   getMimeType,
 } from "../lib/storage";
 import { requireAuth, requireMaster } from "../middlewares/requireAuth";
 import { hashPassword, verifyPassword } from "../lib/auth";
-import { indexItem, removeFromIndex, moveInIndex, indexSubtree, reindexAll } from "../lib/file-index";
 import {
   ListFilesQueryParams,
   DeleteItemQueryParams,
@@ -33,50 +31,11 @@ setInterval(async () => {
   }
 }, 10 * 60 * 1000).unref();
 
-// ── File access logging helper ───────────────────────────────
-async function logFileAccess(userId: string, filePath: string, mimeType?: string): Promise<void> {
-  const fileName = path.basename(filePath);
-  try {
-    // Remove existing entry for this user+path so the new one becomes most recent
-    await db.delete(fileAccessLogTable).where(
-      and(eq(fileAccessLogTable.userId, userId), eq(fileAccessLogTable.filePath, filePath))
-    );
-    await db.insert(fileAccessLogTable).values({ userId, filePath, fileName, mimeType: mimeType ?? null });
-    // Keep only the 50 most recent entries per user
-    const topRows = await db
-      .select({ id: fileAccessLogTable.id })
-      .from(fileAccessLogTable)
-      .where(eq(fileAccessLogTable.userId, userId))
-      .orderBy(desc(fileAccessLogTable.accessedAt))
-      .limit(51);
-    if (topRows.length === 51) {
-      const cutoffId = topRows[topRows.length - 1].id;
-      await db.delete(fileAccessLogTable).where(
-        and(eq(fileAccessLogTable.userId, userId), lt(fileAccessLogTable.id, cutoffId))
-      );
-    }
-  } catch {
-    // Non-critical
-  }
-}
-
 const router: IRouter = Router();
 
-// Temp directory for multer disk storage — files are moved to STORAGE_ROOT after validation.
-// Using disk (not memory) storage so uploads stream directly to disk and never fill RAM,
-// which prevents OOM crashes when uploading hundreds of files simultaneously.
-const UPLOAD_TMP_DIR = "/tmp/vps-drive-uploads";
-
+// Multer: store uploads in memory temporarily, then move to storage
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      mkdirSync(UPLOAD_TMP_DIR, { recursive: true });
-      cb(null, UPLOAD_TMP_DIR);
-    },
-    filename: (_req, _file, cb) => {
-      cb(null, randomUUID());
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB per file
 });
 
@@ -85,39 +44,13 @@ ensureStorageRoot().catch((err) => {
   console.error("Failed to create storage root:", err);
 });
 
-// On startup, remove any stale temp files left by interrupted uploads (older than 1 hour)
-(async () => {
-  try {
-    const entries = await fs.readdir(UPLOAD_TMP_DIR).catch(() => [] as string[]);
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    await Promise.all(
-      entries.map(async (name) => {
-        const filePath = path.join(UPLOAD_TMP_DIR, name);
-        try {
-          const stat = await fs.stat(filePath);
-          if (stat.mtimeMs < oneHourAgo) {
-            await fs.unlink(filePath);
-          }
-        } catch {
-          // Non-critical — skip files that can't be accessed or removed
-        }
-      })
-    );
-  } catch {
-    // Non-critical — if the directory doesn't exist yet, nothing to clean
-  }
-})();
-
-// GET /files — list directory contents (SQL-index backed, O(1) on 1000+ files)
+// GET /files — list directory contents
 router.get("/files", requireAuth, async (req, res): Promise<void> => {
   const parsed = ListFilesQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-
-  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),   10) || 1);
-  const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit ?? "200"), 10) || 200));
 
   let absPath: string;
   try {
@@ -128,15 +61,40 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (!existsSync(absPath)) {
+    // Return empty array if root doesn't exist yet
     if (absPath === STORAGE_ROOT) {
-      res.json({ items: [], total: 0, page: 1, totalPages: 1 });
+      res.json([]);
       return;
     }
     res.status(404).json({ error: "Directory not found" });
     return;
   }
 
-  // Check if the current folder is locked (non-master users)
+  let entries: import("fs").Dirent[];
+  try {
+    entries = await fs.readdir(absPath, { withFileTypes: true });
+  } catch {
+    res.status(400).json({ error: "Not a directory or cannot read" });
+    return;
+  }
+
+  const items = await Promise.all(
+    entries
+      .filter((e) => !e.name.startsWith("."))
+      .map(async (entry) => {
+        const entryPath = path.join(absPath, entry.name);
+        try {
+          const stats = await fs.stat(entryPath);
+          return buildFileItem(entryPath, stats);
+        } catch {
+          return null;
+        }
+      })
+  );
+
+  const validItems = items.filter(Boolean) as NonNullable<(typeof items)[0]>[];
+
+  // Check if the current path itself is locked (non-master users)
   const currentFolderPath = parsed.data.path ?? "";
   if (req.session.role !== "master" && currentFolderPath !== "") {
     const [lockRow] = await db
@@ -153,126 +111,8 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const searchRaw = typeof req.query.search === "string" ? req.query.search.trim() : "";
-  const searchLC  = searchRaw.toLowerCase();
-
-  // ── Build SQL WHERE clause ──────────────────────────────────────────────────
-  const hideHidden = not(like(fileIndexTable.name, ".%"));
-
-  let whereClause;
-  if (searchLC) {
-    // Recursive search across the entire subtree of the current folder
-    const pathScope = currentFolderPath === ""
-      ? undefined
-      : or(
-          eq(fileIndexTable.parentPath, currentFolderPath),
-          like(fileIndexTable.parentPath, currentFolderPath + "/%"),
-        );
-    whereClause = and(hideHidden, ilike(fileIndexTable.name, `%${searchLC}%`), pathScope);
-
-    // Enforce folder-password visibility: exclude contents of locked (non-unlocked) folders
-    if (req.session.role !== "master") {
-      const allLocked = await db
-        .select({ path: folderPasswordsTable.path })
-        .from(folderPasswordsTable);
-      const unlockedSet = new Set(req.session.unlockedFolders ?? []);
-      for (const { path: lp } of allLocked.filter((r) => !unlockedSet.has(r.path))) {
-        whereClause = and(
-          whereClause,
-          not(or(
-            eq(fileIndexTable.parentPath, lp),
-            like(fileIndexTable.parentPath, lp + "/%"),
-          )!),
-        );
-      }
-    }
-  } else {
-    whereClause = and(hideHidden, eq(fileIndexTable.parentPath, currentFolderPath));
-  }
-
-  // ── Count via index ─────────────────────────────────────────────────────────
-  const [{ value: indexTotal }] = await db
-    .select({ value: count() })
-    .from(fileIndexTable)
-    .where(whereClause);
-
-  // ── Disk fallback if index is empty for a known-non-empty directory ─────────
-  // (handles the cold-start state before the first reindex)
-  if (indexTotal === 0 && !searchLC) {
-    const diskEntries = await fs.readdir(absPath, { withFileTypes: true }).catch(() => [] as import("fs").Dirent[]);
-    const visible = diskEntries.filter((e) => !e.name.startsWith("."));
-
-    if (visible.length > 0) {
-      // Trigger background reindex so subsequent requests use the fast SQL path
-      reindexAll().catch((err) => console.error("[file-index] disk-fallback reindexAll:", err));
-
-      const sorted = [...visible].sort((a, b) => {
-        const aDir = a.isDirectory() ? 0 : 1;
-        const bDir = b.isDirectory() ? 0 : 1;
-        if (aDir !== bDir) return aDir - bDir;
-        return a.name.localeCompare(b.name);
-      });
-
-      const total      = sorted.length;
-      const totalPages = Math.max(1, Math.ceil(total / limit));
-      const pageEntries = sorted.slice((page - 1) * limit, page * limit);
-
-      const BATCH = 20;
-      const pageItems: ReturnType<typeof buildFileItem>[] = [];
-      for (let i = 0; i < pageEntries.length; i += BATCH) {
-        const batch = pageEntries.slice(i, i + BATCH);
-        const results = await Promise.all(
-          batch.map(async (entry) => {
-            const entryPath = path.join(absPath, entry.name);
-            try {
-              const stats = await fs.stat(entryPath);
-              return buildFileItem(entryPath, stats);
-            } catch { return null; }
-          })
-        );
-        pageItems.push(...(results.filter(Boolean) as ReturnType<typeof buildFileItem>[]));
-      }
-
-      const pageDirPaths = pageItems.filter((i) => i.type === "directory").map((i) => i.path);
-      const lockedPaths  = new Set<string>();
-      if (pageDirPaths.length > 0) {
-        const locked = await db
-          .select({ path: folderPasswordsTable.path })
-          .from(folderPasswordsTable)
-          .where(inArray(folderPasswordsTable.path, pageDirPaths));
-        locked.forEach((r) => lockedPaths.add(r.path));
-      }
-
-      if (req.session.userId && currentFolderPath !== "") {
-        logFileAccess(req.session.userId, currentFolderPath, "inode/directory").catch(() => {});
-      }
-
-      res.json({
-        items: pageItems.map((item) => ({
-          ...item,
-          hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
-        })),
-        total,
-        page,
-        totalPages,
-      });
-      return;
-    }
-  }
-
-  // ── SQL index response ──────────────────────────────────────────────────────
-  const total      = indexTotal;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  const indexItems = await db
-    .select()
-    .from(fileIndexTable)
-    .where(whereClause)
-    .orderBy(desc(fileIndexTable.isDir), asc(fileIndexTable.name))
-    .limit(limit)
-    .offset((page - 1) * limit);
-
-  const dirPaths   = indexItems.filter((i) => i.isDir).map((i) => i.path);
+  // Enrich directory items with hasPassword flag
+  const dirPaths = validItems.filter((i) => i.type === "directory").map((i) => i.path);
   const lockedPaths = new Set<string>();
   if (dirPaths.length > 0) {
     const locked = await db
@@ -282,24 +122,18 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
     locked.forEach((r) => lockedPaths.add(r.path));
   }
 
-  if (req.session.userId && currentFolderPath !== "") {
-    logFileAccess(req.session.userId, currentFolderPath, "inode/directory").catch(() => {});
-  }
-
-  res.json({
-    items: indexItems.map((item) => ({
-      name: item.name,
-      path: item.path,
-      type: item.isDir ? "directory" : "file",
-      size: item.size ?? 0,
-      modifiedAt: item.modifiedAt.toISOString(),
-      mimeType: item.mimeType,
-      hasPassword: item.isDir ? lockedPaths.has(item.path) : false,
-    })),
-    total,
-    page,
-    totalPages,
+  // Directories first, then files, both sorted by name
+  validItems.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name);
   });
+
+  res.json(
+    validItems.map((item) => ({
+      ...item,
+      hasPassword: item.type === "directory" ? lockedPaths.has(item.path) : false,
+    }))
+  );
 });
 
 // GET /files/download — download a file
@@ -340,8 +174,6 @@ router.get("/files/download", requireAuth, async (req, res): Promise<void> => {
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.setHeader("Content-Length", stats.size);
 
-  logFileAccess(req.session.userId!, rawPath, getMimeType(absPath)).catch(() => {});
-
   const stream = createReadStream(absPath);
   stream.on("error", () => {
     if (!res.headersSent) {
@@ -373,34 +205,19 @@ router.post(
   upload.array("files"),
   handleMulterError,
   async (req: express.Request, res: express.Response): Promise<void> => {
-    // Capture req.files immediately — multer has already written them to UPLOAD_TMP_DIR
-    // by the time this handler runs. cleanupTempFiles() is called on every early-return
-    // error path so no orphaned files are left in /tmp.
-    const files = req.files as Express.Multer.File[] | undefined;
-
-    async function cleanupTempFiles(): Promise<void> {
-      if (!files?.length) return;
-      await Promise.allSettled(files.map((f) => fs.unlink(f.path).catch(() => {})));
-    }
-
     const targetPath = typeof req.body.path === "string" ? req.body.path : "";
 
     let absDir: string;
     try {
       absDir = resolveStoragePath(targetPath);
     } catch {
-      await cleanupTempFiles();
       res.status(400).json({ error: "Invalid path" });
       return;
     }
 
-    try {
-      await fs.mkdir(absDir, { recursive: true });
-    } catch (err) {
-      await cleanupTempFiles();
-      throw err;
-    }
+    await fs.mkdir(absDir, { recursive: true });
 
+    const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) {
       res.status(400).json({ error: "No files uploaded" });
       return;
@@ -417,83 +234,33 @@ router.post(
       }
     }
 
-    // Helper: move temp file to dest, cleaning up the temp on any failure.
-    // fs.rename is atomic on the same filesystem; falls back to copy+unlink across devices.
-    async function moveTempFile(tmpPath: string, destPath: string): Promise<void> {
-      try {
-        await fs.rename(tmpPath, destPath);
-      } catch (err: unknown) {
-        if ((err as NodeJS.ErrnoException)?.code === "EXDEV") {
-          // Cross-device (e.g. /tmp and storage on different mount points)
-          await fs.copyFile(tmpPath, destPath);
-          await fs.unlink(tmpPath).catch(() => {});
-        } else {
-          await fs.unlink(tmpPath).catch(() => {});
-          throw err;
-        }
-      }
-    }
+    const uploaded = await Promise.all(
+      files.map(async (file, i) => {
+        const relPath = relativePaths[i];
+        let destPath: string;
 
-    let uploaded: ReturnType<typeof buildFileItem>[];
-    try {
-      uploaded = await Promise.all(
-        files.map(async (file, i) => {
-          const relPath = relativePaths[i];
-          let destPath: string;
-
-          if (relPath && typeof relPath === "string") {
-            // Normalize path: forward slashes only, no leading slash
-            const normalized = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
-            // Security: reject ".." segments
-            const segments = normalized.split("/");
-            if (segments.some((s) => s === ".." || s === ".")) {
-              // Fallback to safe basename
-              const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
-              destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
-            } else {
-              destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), normalized));
-              await fs.mkdir(path.dirname(destPath), { recursive: true });
-            }
-          } else {
-            // Plain upload: strip any directory separators from the original filename
+        if (relPath && typeof relPath === "string") {
+          // Normalize path: forward slashes only, no leading slash
+          const normalized = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+          // Security: reject ".." segments
+          const segments = normalized.split("/");
+          if (segments.some((s) => s === ".." || s === ".")) {
+            // Fallback to safe basename
             const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
             destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
+          } else {
+            destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), normalized));
+            await fs.mkdir(path.dirname(destPath), { recursive: true });
           }
-
-          await moveTempFile(file.path, destPath);
-          const stats = await fs.stat(destPath);
-          return buildFileItem(destPath, stats);
-        })
-      );
-    } catch (err) {
-      // Clean up any temp files that weren't moved (e.g. files after the one that threw)
-      await cleanupTempFiles();
-      throw err;
-    }
-
-    // Fire-and-forget: log each uploaded file as recently accessed
-    const userId = req.session.userId!;
-    for (const uploadedFile of uploaded) {
-      logFileAccess(userId, uploadedFile.path, uploadedFile.mimeType ?? undefined).catch(() => {});
-    }
-
-    // Await index updates (best-effort; errors logged but do not fail the upload response)
-    await Promise.allSettled(
-      uploaded.flatMap((uploadedFile) => {
-        const tasks: Promise<void>[] = [];
-        tasks.push(
-          indexItem(path.join(STORAGE_ROOT, uploadedFile.path))
-            .catch((err) => { console.error("[file-index] upload indexItem:", err); })
-        );
-        let rel = uploadedFile.path;
-        while (rel.includes("/")) {
-          rel = rel.substring(0, rel.lastIndexOf("/"));
-          tasks.push(
-            indexItem(path.join(STORAGE_ROOT, rel))
-              .catch((err) => { console.error("[file-index] upload parent indexItem:", err); })
-          );
+        } else {
+          // Plain upload: strip any directory separators from the original filename
+          const safeName = path.basename(file.originalname).replace(/[/\\]/g, "_") || "upload";
+          destPath = resolveStoragePath(path.join(path.relative(STORAGE_ROOT, absDir), safeName));
         }
-        return tasks;
+
+        await fs.writeFile(destPath, file.buffer);
+        const stats = await fs.stat(destPath);
+        return buildFileItem(destPath, stats);
       })
     );
 
@@ -524,17 +291,6 @@ router.post("/files/mkdir", requireAuth, async (req, res): Promise<void> => {
 
   await fs.mkdir(absPath, { recursive: true });
   const stats = await fs.stat(absPath);
-
-  // Index the leaf directory AND all intermediate ancestors that were created by the
-  // recursive mkdir (e.g. creating "a/b/c" also creates "a" and "a/b").
-  // indexItem is an upsert, so re-indexing an existing directory is safe.
-  const relLeaf = toRelativePath(absPath);
-  const parts = relLeaf ? relLeaf.split("/") : [];
-  for (let i = 1; i <= parts.length; i++) {
-    const ancestorAbs = path.join(STORAGE_ROOT, parts.slice(0, i).join("/"));
-    try { await indexItem(ancestorAbs); } catch (err) { console.error("[file-index] mkdir indexItem:", err); }
-  }
-
   res.status(201).json(buildFileItem(absPath, stats));
 });
 
@@ -569,7 +325,6 @@ router.patch("/files/rename", requireAuth, async (req, res): Promise<void> => {
   // Ensure parent directory of new path exists
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
   await fs.rename(oldAbs, newAbs);
-  try { await moveInIndex(parsed.data.oldPath, newAbs); } catch (err) { console.error("[file-index] rename moveInIndex:", err); }
 
   const stats = await fs.stat(newAbs);
   res.json(buildFileItem(newAbs, stats));
@@ -609,7 +364,6 @@ router.delete("/files", requireAuth, async (req, res): Promise<void> => {
     res.status(500).json({ error: `Não foi possível excluir: ${msg}` });
     return;
   }
-  try { await removeFromIndex(parsed.data.path); } catch (err) { console.error("[file-index] delete removeFromIndex:", err); }
   res.sendStatus(204);
 });
 
@@ -688,8 +442,6 @@ router.get("/files/preview", requireAuth, async (req, res): Promise<void> => {
   }
 
   const mimeType = getMimeType(absPath);
-
-  logFileAccess(req.session.userId!, rawPath, mimeType).catch(() => {});
 
   const TEXT_MIME_PREFIXES = ["text/"];
   const TEXT_MIME_TYPES = [
@@ -1031,207 +783,6 @@ router.post("/files/unlock-folder", requireAuth, async (req, res): Promise<void>
   res.json({ unlocked: true });
 });
 
-// GET /files/recent — return 10 most recently accessed files for the current user
-router.get("/files/recent", requireAuth, async (req, res): Promise<void> => {
-  const userId = req.session.userId!;
-  const rows = await db
-    .select()
-    .from(fileAccessLogTable)
-    .where(eq(fileAccessLogTable.userId, userId))
-    .orderBy(desc(fileAccessLogTable.accessedAt))
-    .limit(10);
-
-  res.json(rows.map((r) => ({
-    path: r.filePath,
-    name: r.fileName,
-    mimeType: r.mimeType,
-    accessedAt: r.accessedAt.toISOString(),
-  })));
-});
-
-// POST /files/bulk-delete — delete multiple files/folders at once
-router.post("/files/bulk-delete", requireAuth, async (req, res): Promise<void> => {
-  const { paths } = req.body as { paths?: unknown };
-  if (!Array.isArray(paths) || paths.length === 0) {
-    res.status(400).json({ error: "Missing or empty paths array" });
-    return;
-  }
-
-  const deleted: string[] = [];
-  const failed: Array<{ path: string; error: string }> = [];
-
-  await Promise.all(
-    (paths as string[]).map(async (rawPath) => {
-      try {
-        const absPath = resolveStoragePath(rawPath);
-        if (absPath === STORAGE_ROOT) {
-          failed.push({ path: rawPath, error: "Cannot delete storage root" });
-          return;
-        }
-        if (!existsSync(absPath)) {
-          failed.push({ path: rawPath, error: "Not found" });
-          return;
-        }
-        await fs.rm(absPath, { recursive: true, force: true });
-        deleted.push(rawPath);
-        try { await removeFromIndex(rawPath); } catch (err) { console.error("[file-index] bulk-delete removeFromIndex:", err); }
-      } catch (err) {
-        failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
-      }
-    })
-  );
-
-  res.json({ deleted, failed });
-});
-
-// POST /files/bulk-move — move multiple files/folders to a destination directory
-router.post("/files/bulk-move", requireAuth, async (req, res): Promise<void> => {
-  const { paths, destDir } = req.body as { paths?: unknown; destDir?: unknown };
-  if (!Array.isArray(paths) || paths.length === 0) {
-    res.status(400).json({ error: "Missing or empty paths array" });
-    return;
-  }
-  const targetDir = typeof destDir === "string" ? destDir : "";
-
-  const moved: string[] = [];
-  const failed: Array<{ path: string; error: string }> = [];
-
-  await Promise.all(
-    (paths as string[]).map(async (rawPath) => {
-      try {
-        const srcAbs = resolveStoragePath(rawPath);
-        if (!existsSync(srcAbs)) {
-          failed.push({ path: rawPath, error: "Source not found" });
-          return;
-        }
-        const itemName = path.basename(rawPath);
-        const destPath = targetDir ? `${targetDir}/${itemName}` : itemName;
-        const dstAbs = resolveStoragePath(destPath);
-        if (dstAbs === srcAbs) {
-          failed.push({ path: rawPath, error: "Source and destination are the same" });
-          return;
-        }
-        if (existsSync(dstAbs)) {
-          failed.push({ path: rawPath, error: "Destination already exists" });
-          return;
-        }
-        if (dstAbs.startsWith(srcAbs + path.sep)) {
-          failed.push({ path: rawPath, error: "Cannot move folder into itself" });
-          return;
-        }
-        await fs.mkdir(path.dirname(dstAbs), { recursive: true });
-        await fs.rename(srcAbs, dstAbs);
-        moved.push(rawPath);
-        try { await moveInIndex(rawPath, dstAbs); } catch (err) { console.error("[file-index] bulk-move moveInIndex:", err); }
-      } catch (err) {
-        failed.push({ path: rawPath, error: err instanceof Error ? err.message : "Unknown error" });
-      }
-    })
-  );
-
-  res.json({ moved, failed });
-});
-
-// POST /files/move — move a file or folder to a new location
-router.post("/files/move", requireAuth, async (req, res): Promise<void> => {
-  const { sourcePath, destPath } = req.body as { sourcePath?: string; destPath?: string };
-  if (!sourcePath || !destPath) {
-    res.status(400).json({ error: "Missing sourcePath or destPath" });
-    return;
-  }
-
-  let srcAbs: string;
-  let dstAbs: string;
-  try {
-    srcAbs = resolveStoragePath(sourcePath);
-    dstAbs = resolveStoragePath(destPath);
-  } catch {
-    res.status(400).json({ error: "Invalid path" });
-    return;
-  }
-
-  if (!existsSync(srcAbs)) {
-    res.status(404).json({ error: "Source not found" });
-    return;
-  }
-  if (existsSync(dstAbs)) {
-    res.status(400).json({ error: "Destination already exists" });
-    return;
-  }
-  if (dstAbs === srcAbs || dstAbs.startsWith(srcAbs + path.sep)) {
-    res.status(400).json({ error: "Cannot move a folder into itself" });
-    return;
-  }
-
-  await fs.mkdir(path.dirname(dstAbs), { recursive: true });
-  await fs.rename(srcAbs, dstAbs);
-  try { await moveInIndex(sourcePath, dstAbs); } catch (err) { console.error("[file-index] move moveInIndex:", err); }
-
-  const stats = await fs.stat(dstAbs);
-  res.json(buildFileItem(dstAbs, stats));
-});
-
-// POST /files/copy — recursively copy a file or folder
-router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
-  const { sourcePath, destPath } = req.body as { sourcePath?: string; destPath?: string };
-  if (!sourcePath || !destPath) {
-    res.status(400).json({ error: "Missing sourcePath or destPath" });
-    return;
-  }
-
-  let srcAbs: string;
-  let dstAbs: string;
-  try {
-    srcAbs = resolveStoragePath(sourcePath);
-    dstAbs = resolveStoragePath(destPath);
-  } catch {
-    res.status(400).json({ error: "Invalid path" });
-    return;
-  }
-
-  if (!existsSync(srcAbs)) {
-    res.status(404).json({ error: "Source not found" });
-    return;
-  }
-  if (existsSync(dstAbs)) {
-    res.status(400).json({ error: "Destination already exists" });
-    return;
-  }
-  if (dstAbs === srcAbs || dstAbs.startsWith(srcAbs + path.sep)) {
-    res.status(400).json({ error: "Cannot copy a folder into itself" });
-    return;
-  }
-
-  async function copyRecursive(src: string, dst: string): Promise<void> {
-    const stat = await fs.stat(src);
-    if (stat.isDirectory()) {
-      await fs.mkdir(dst, { recursive: true });
-      const entries = await fs.readdir(src, { withFileTypes: true });
-      await Promise.all(entries.map((e) => copyRecursive(path.join(src, e.name), path.join(dst, e.name))));
-    } else {
-      await fs.mkdir(path.dirname(dst), { recursive: true });
-      await fs.copyFile(src, dst);
-    }
-  }
-
-  await copyRecursive(srcAbs, dstAbs);
-  try { await indexSubtree(dstAbs); } catch (err) { console.error("[file-index] copy indexSubtree:", err); }
-
-  const stats = await fs.stat(dstAbs);
-  res.json(buildFileItem(dstAbs, stats));
-});
-
-// POST /files/reindex — full rebuild of the file index (master only)
-router.post("/files/reindex", requireMaster, async (_req, res): Promise<void> => {
-  try {
-    const { indexed } = await reindexAll();
-    res.json({ indexed, message: `Reindex completo: ${indexed} item(s) indexado(s).` });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).json({ error: `Reindex falhou: ${msg}` });
-  }
-});
-
 // GET /files/stats — storage statistics
 router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
   const { totalFiles, totalSize, totalDirectories, allFiles } =
@@ -1252,52 +803,5 @@ router.get("/files/stats", requireAuth, async (_req, res): Promise<void> => {
     recentFiles,
   });
 });
-
-// ── Guarantee file_index table exists (idempotent, runs before any route) ─────
-// This is a safety net in case the deployment did not run `drizzle-kit push`.
-// The CREATE TABLE IF NOT EXISTS is a no-op if the table already exists.
-(async () => {
-  try {
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS file_index (
-        path        TEXT        PRIMARY KEY NOT NULL,
-        name        TEXT        NOT NULL,
-        parent_path TEXT        NOT NULL,
-        is_dir      BOOLEAN     NOT NULL DEFAULT false,
-        size        BIGINT,
-        mime_type   TEXT,
-        modified_at TIMESTAMP   NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS file_index_parent_path_idx ON file_index (parent_path);
-      CREATE INDEX IF NOT EXISTS file_index_name_idx         ON file_index (name);
-    `);
-  } catch (err) {
-    console.error("[VPS Drive] Could not ensure file_index table:", err);
-  }
-})();
-
-// ── Auto-reindex on startup if index is empty but storage has files ───────────
-// This runs once when the module is loaded (server start / PM2 restart after deploy).
-// Note on consistency model: index mutations on write routes are awaited and errors
-// are logged. If a transient DB error causes an index update to fail, GET /api/files
-// will fall back to disk on next request and trigger a background reindexAll(), so
-// the index self-heals without manual intervention.
-(async () => {
-  try {
-    const [{ value: cnt }] = await db.select({ value: count() }).from(fileIndexTable);
-    if (cnt === 0 && existsSync(STORAGE_ROOT)) {
-      const entries = await fs.readdir(STORAGE_ROOT).catch(() => [] as string[]);
-      const visible = entries.filter((e: string) => !e.startsWith("."));
-      if (visible.length > 0) {
-        console.log("[VPS Drive] File index empty — running background reindex...");
-        reindexAll()
-          .then(({ indexed }) => console.log(`[VPS Drive] Reindex complete: ${indexed} items`))
-          .catch((err) => console.error("[VPS Drive] Reindex error:", err));
-      }
-    }
-  } catch {
-    // Non-critical — index will be built lazily on first request
-  }
-})();
 
 export default router;

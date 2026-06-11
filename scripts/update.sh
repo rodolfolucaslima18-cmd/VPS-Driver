@@ -3,9 +3,9 @@
 #  VPS Drive — Script de Atualização
 #  Atualiza código, dependências e rebuild sem reinstalar.
 #
-#  Uso (VPS):
-#    sudo bash /opt/vps-drive/scripts/update.sh
-#  Ou via botão "Atualizar agora" no painel admin.
+#  Uso:
+#    bash <(curl -sL https://HOST/api/download/update.sh)
+#    bash scripts/update.sh   (de dentro do projeto)
 # ============================================================
 set -euo pipefail
 
@@ -21,7 +21,7 @@ ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $1${NC}"; }
 error() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
 
-GITHUB_REPO="https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
+INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
 
 echo -e "
 ${BOLD}${CYAN}╔══════════════════════════════════════╗
@@ -65,31 +65,20 @@ if ! grep -q "^VITE_ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
   echo "VITE_ONLYOFFICE_URL=" >> "$ENV_FILE"
 fi
 
-# ── Verificar git ────────────────────────────────────────────
-step "Verificando git..."
-if ! command -v git &>/dev/null; then
-  echo "  git não encontrado — instalando..."
-  apt-get install -y -qq git
-fi
-ok "git $(git --version | awk '{print $3}')"
+# ── Baixar e extrair código novo ─────────────────────────────
+step "Baixando código atualizado..."
 
-# ── Clonar código atualizado do GitHub ───────────────────────
-step "Baixando código atualizado do GitHub..."
+if [[ -z "$INSTALLER_BASE_URL" || "$INSTALLER_BASE_URL" == "__INSTALLER_BASE_URL__" ]]; then
+  error "URL base não injetada. Use: bash <(curl -sL https://SEU_HOST/api/download/update.sh)"
+fi
 
 TMPDIR_UPDATE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
 
-echo "  Clonando de $GITHUB_REPO..."
-if ! git clone --depth=1 "$GITHUB_REPO" "$TMPDIR_UPDATE" 2>&1; then
-  error "Falha ao clonar repositório do GitHub. Verifique a conectividade e tente novamente."
-fi
-
-# Validar que o clone trouxe o projeto completo antes de sincronizar
-if [[ ! -f "$TMPDIR_UPDATE/package.json" ]] || [[ ! -d "$TMPDIR_UPDATE/artifacts" ]]; then
-  error "Clone incompleto — package.json ou pasta artifacts não encontrados em $TMPDIR_UPDATE. Abortando sem modificar a instalação."
-fi
-
-ok "Código obtido do GitHub"
+echo "  Baixando de $INSTALLER_BASE_URL..."
+curl -sL --max-time 120 "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
+  | tar -xzf - -C "$TMPDIR_UPDATE" 2>/dev/null
+ok "Código baixado e extraído"
 
 # ── Copiar arquivos preservando .env e dados ─────────────────
 step "Aplicando atualização (preservando .env e /data)..."
@@ -195,17 +184,6 @@ if [ $_fe_ec -ne 0 ]; then
 fi
 ok "Frontend compilado"
 
-# Corrigir permissões para o nginx (www-data) conseguir traversar os diretórios
-# e ler os arquivos do dist do frontend
-chmod o+x "$INSTALL_DIR" \
-          "$INSTALL_DIR/artifacts" \
-          "$INSTALL_DIR/artifacts/vps-drive" \
-          "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
-if [[ -d "$INSTALL_DIR/artifacts/vps-drive/dist" ]]; then
-  chown -R www-data:www-data "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
-  chmod -R 755 "$INSTALL_DIR/artifacts/vps-drive/dist" 2>/dev/null || true
-fi
-
 # ── Build backend ─────────────────────────────────────────────
 step "Compilando servidor..."
 set +e
@@ -221,7 +199,6 @@ ok "Servidor compilado"
 NGINX_CONF="/etc/nginx/sites-available/vps-drive"
 if [[ -f "$NGINX_CONF" ]] && ! grep -q "no-store" "$NGINX_CONF"; then
   step "Nginx: adicionando Cache-Control para index.html..."
-  cp "$NGINX_CONF" "${NGINX_CONF}.bak"
   TMP_PY=$(mktemp)
   cat > "$TMP_PY" << 'PYEOF'
 import sys
@@ -248,7 +225,7 @@ PYEOF
     ok "Nginx atualizado: Cache-Control aplicado"
   else
     warn "Config Nginx inválida após patch — revertendo"
-    cp "$NGINX_CONF.bak" "$NGINX_CONF" 2>/dev/null || true
+    git -C / checkout -- "$NGINX_CONF" 2>/dev/null || true
   fi
 fi
 
