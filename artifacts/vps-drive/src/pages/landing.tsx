@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { HardDrive, Server, Shield, Zap, Terminal, Copy, Check, Download } from "lucide-react";
+import { HardDrive, Server, Shield, Zap, Terminal, Copy, Check, Download, FileEdit } from "lucide-react";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -30,6 +30,8 @@ function CopyCommand({ cmd }: { cmd: string }) {
 
 export default function LandingPage() {
   const installCmd = `bash <(curl -sL ${window.location.origin}${BASE_URL}/api/download/install.sh)`;
+  const installOoCmd = `sudo bash <(curl -sL ${window.location.origin}${BASE_URL}/api/download/install-onlyoffice.sh)`;
+  const installDockerCmd = `curl -fsSL https://get.docker.com | sudo sh`;
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground selection:bg-primary/20">
@@ -134,6 +136,7 @@ export default function LandingPage() {
                   "Pergunta IP/domínio, pasta de armazenamento e porta",
                   "Faz o build completo do app e inicia com PM2",
                   "Mostra a URL de acesso ao finalizar",
+                  "Edição de documentos (OnlyOffice) pode ser ativada depois com 1 comando",
                 ].map((item, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
@@ -148,6 +151,57 @@ export default function LandingPage() {
                 <a href={`${BASE_URL}/api/download/install.sh`} download="install.sh">
                   <Download className="w-4 h-4" />
                   Baixar install.sh
+                </a>
+              </Button>
+            </div>
+          </div>
+
+          {/* Bloco OnlyOffice — instalação separada */}
+          <div className="space-y-6 text-left bg-card border border-border rounded-2xl p-8 shadow-sm mt-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <FileEdit className="w-5 h-5" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Edição de documentos</span>
+                </div>
+                <span className="ml-1 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  Opcional
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight">OnlyOffice Document Server</h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Permite abrir e editar arquivos <strong>.docx, .xlsx e .pptx</strong> diretamente no navegador, sem sair do VPS Drive.
+                Instalado separadamente do VPS Drive — requer <strong>Docker</strong> e aproximadamente <strong>1 GB de RAM extra</strong>.
+                Pode ser instalado a qualquer momento após a instalação principal.
+              </p>
+            </div>
+
+            <div className="space-y-4 pt-1 border-t border-border">
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold mr-1.5">1</span>
+                  Instale o Docker na VPS:
+                </p>
+                <CopyCommand cmd={installDockerCmd} />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold mr-1.5">2</span>
+                  Execute o instalador do OnlyOffice (como <code className="bg-muted px-1 rounded text-xs">root</code>):
+                </p>
+                <CopyCommand cmd={installOoCmd} />
+                <p className="text-xs text-muted-foreground">
+                  O instalador configura o Docker, baixa a imagem (~1 GB), cria o serviço de auto-start e atualiza o VPS Drive automaticamente. Pode levar 2–5 minutos.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                <a href={`${BASE_URL}/api/download/install-onlyoffice.sh`} download="install-onlyoffice.sh">
+                  <Download className="w-4 h-4" />
+                  Baixar install-onlyoffice.sh
                 </a>
               </Button>
             </div>
