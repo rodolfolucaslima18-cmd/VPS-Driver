@@ -112,10 +112,13 @@ step "Aplicando atualização (preservando .env e /data)..."
 # Backup do .env atual
 cp "$ENV_FILE" "$TMPDIR_UPDATE/.env.bak"
 
-# Sincronizar código novo para INSTALL_DIR, excluindo arquivos que não devem ser sobrescritos
+# Sincronizar código novo para INSTALL_DIR, excluindo arquivos que não devem ser sobrescritos.
+# IMPORTANTE: --exclude='storage' protege uploads e dados persistentes do usuário.
 rsync -a --delete \
   --exclude='.env' \
   --exclude='node_modules' \
+  --exclude='storage' \
+  --exclude='.git' \
   --exclude='artifacts/api-server/dist' \
   --exclude='artifacts/vps-drive/dist' \
   --exclude='artifacts/mockup-sandbox/dist' \
@@ -263,8 +266,8 @@ source "$ENV_FILE"
 set +a
 
 if pm2 describe vps-drive-api &>/dev/null; then
-  pm2 restart vps-drive-api --update-env
-  ok "vps-drive-api reiniciado"
+  pm2 reload vps-drive-api --update-env
+  ok "vps-drive-api recarregado (graceful reload)"
 else
   pm2 start "$INSTALL_DIR/artifacts/api-server/dist/index.mjs" \
     --name "vps-drive-api" \
