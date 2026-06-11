@@ -433,10 +433,13 @@ if [[ "${WANT_ONLYOFFICE,,}" == "s" ]]; then
     ok "Docker já está instalado ($(docker --version))"
   else
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
     ok "Docker instalado"
   fi
+
+  # Garantir que o Docker inicia automaticamente após reboot
+  systemctl enable docker 2>/dev/null || true
+  systemctl start docker 2>/dev/null || true
+  ok "Docker habilitado no startup"
 
   step "Iniciando OnlyOffice Document Server (pode demorar alguns minutos)..."
   if docker ps -a --format '{{.Names}}' | grep -q '^onlyoffice$'; then
@@ -450,6 +453,30 @@ if [[ "${WANT_ONLYOFFICE,,}" == "s" ]]; then
       onlyoffice/documentserver
     ok "Container onlyoffice criado e iniciado"
   fi
+
+  # ── Serviço systemd para garantir auto-start após reboot ─────
+  step "Configurando auto-start do OnlyOffice via systemd..."
+  cat > /etc/systemd/system/onlyoffice.service <<'UNIT'
+[Unit]
+Description=OnlyOffice Document Server (Docker)
+Documentation=https://helpcenter.onlyoffice.com
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker start onlyoffice
+ExecStop=/usr/bin/docker stop onlyoffice
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  systemctl daemon-reload
+  systemctl enable onlyoffice
+  ok "onlyoffice.service habilitado — inicia automaticamente após reboot"
 
   echo "  Aguardando OnlyOffice ficar disponível (pode levar 1-2 minutos)..."
   OO_OK=false

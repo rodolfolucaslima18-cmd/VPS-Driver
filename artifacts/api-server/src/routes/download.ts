@@ -66,6 +66,28 @@ router.get("/download/update.sh", async (req, res): Promise<void> => {
   res.send(content);
 });
 
+// GET /download/install-onlyoffice.sh — serve o script de instalação standalone do OnlyOffice
+router.get("/download/install-onlyoffice.sh", async (req, res): Promise<void> => {
+  const scriptPath = path.join(workspaceRoot, "scripts", "install-onlyoffice.sh");
+
+  if (!existsSync(scriptPath)) {
+    res.status(404).json({ error: "Script não encontrado." });
+    return;
+  }
+
+  let content: string;
+  try {
+    content = await fs.readFile(scriptPath, "utf-8");
+  } catch {
+    res.status(500).json({ error: "Erro ao ler o script." });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="install-onlyoffice.sh"');
+  res.send(content);
+});
+
 // GET /download/project.tar.gz — serve o código do projeto como tarball
 router.get("/download/project.tar.gz", (_req, res): void => {
   const excludes = [
