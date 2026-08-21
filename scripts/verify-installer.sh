@@ -78,34 +78,38 @@ else
   exit 1
 fi
 
-# install.sh: HTTP 200 + injeção de URLs
+# install.sh: HTTP 200 + injeção da origem GitHub
 SH_HTTP=$(curl -s -o /tmp/_verify_install_sh -w "%{http_code}" --max-time 5 "$API_BASE/api/download/install.sh" 2>&1); SH_EC=$?
 SH_OUT=$(cat /tmp/_verify_install_sh 2>/dev/null || echo "")
 if [ $SH_EC -ne 0 ]; then
   fail "GET /api/download/install.sh falhou (curl exit $SH_EC)"
 elif [ "$SH_HTTP" != "200" ]; then
   fail "GET /api/download/install.sh retornou HTTP $SH_HTTP (esperado 200)"
-elif echo "$SH_OUT" | grep -q "__INSTALLER_BASE_URL__"; then
-  fail "install.sh ainda contém placeholder __INSTALLER_BASE_URL__ (injeção falhou)"
+elif echo "$SH_OUT" | grep -qE "__REPO_URL__|__REPO_BRANCH__"; then
+  fail "install.sh ainda contém placeholder de repositório ou branch (injeção falhou)"
+elif ! echo "$SH_OUT" | grep -q "https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"; then
+  fail "install.sh não contém o repositório GitHub padrão"
 else
-  pass "install.sh: HTTP 200 e __INSTALLER_BASE_URL__ substituído corretamente"
+  pass "install.sh: HTTP 200 e origem GitHub injetada corretamente"
 fi
 
-if echo "$SH_OUT" | grep -q "__REPO_URL__"; then
-  warn "install.sh: __REPO_URL__ é placeholder (aceitável sem git repo configurado)"
-fi
-
-# update.sh: HTTP 200 + injeção de URL
+# update.sh: HTTP 200 + injeção da origem GitHub
 UPDATE_SH_HTTP=$(curl -s -o /tmp/_verify_update_sh -w "%{http_code}" --max-time 5 "$API_BASE/api/download/update.sh" 2>&1); UPDATE_SH_EC=$?
 UPDATE_SH_OUT=$(cat /tmp/_verify_update_sh 2>/dev/null || echo "")
 if [ $UPDATE_SH_EC -ne 0 ]; then
   fail "GET /api/download/update.sh falhou (curl exit $UPDATE_SH_EC)"
 elif [ "$UPDATE_SH_HTTP" != "200" ]; then
   fail "GET /api/download/update.sh retornou HTTP $UPDATE_SH_HTTP (esperado 200)"
-elif echo "$UPDATE_SH_OUT" | grep -qE '^INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"'; then
-  fail "update.sh ainda contém placeholder __INSTALLER_BASE_URL__ na atribuição (injeção falhou)"
+elif echo "$UPDATE_SH_OUT" | grep -qE "__REPO_URL__|__REPO_BRANCH__"; then
+  fail "update.sh ainda contém placeholder de repositório ou branch (injeção falhou)"
+elif ! echo "$UPDATE_SH_OUT" | grep -q "https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"; then
+  fail "update.sh não contém o repositório GitHub padrão"
+elif echo "$UPDATE_SH_OUT" | grep -q "push-force"; then
+  fail "update.sh ainda tenta aplicar schema com push-force"
+elif echo "$UPDATE_SH_OUT" | grep -q "ONLYOFFICE_URL=.*>>"; then
+  fail "update.sh ainda altera o arquivo .env durante a atualização"
 else
-  pass "update.sh: HTTP 200 e __INSTALLER_BASE_URL__ substituído corretamente"
+  pass "update.sh: origem GitHub injetada e dados preservados"
 fi
 
 # Tarball: HEAD request

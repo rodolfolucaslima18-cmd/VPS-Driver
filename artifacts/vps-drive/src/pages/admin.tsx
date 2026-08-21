@@ -75,7 +75,7 @@ type VersionInfo = {
 
 type UpdateStatus = "idle" | "updating" | "success" | "error";
 
-type AdminSettings = { installerUrl: string };
+type AdminSettings = { repoUrl: string; repoBranch: string };
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -103,7 +103,8 @@ export default function AdminPage() {
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sseRef = useRef<EventSource | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
-  const [installerUrlDraft, setInstallerUrlDraft] = useState<string | null>(null);
+  const [repoUrlDraft, setRepoUrlDraft] = useState<string | null>(null);
+  const [repoBranchDraft, setRepoBranchDraft] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<{ users: AdminUser[]; totalCount: number }>({
     queryKey: ["admin", "users"],
@@ -124,18 +125,23 @@ export default function AdminPage() {
     retry: false,
   });
 
-  const currentInstallerUrl = installerUrlDraft ?? settingsData?.installerUrl ?? "";
+  const currentRepoUrl = repoUrlDraft ?? settingsData?.repoUrl ?? "";
+  const currentRepoBranch = repoBranchDraft ?? settingsData?.repoBranch ?? "main";
 
   const saveSettingsMutation = useMutation({
-    mutationFn: (installerUrl: string) =>
-      apiFetch<{ ok: boolean; installerUrl: string }>("/api/admin/settings", {
+    mutationFn: ({ repoUrl, repoBranch }: AdminSettings) =>
+      apiFetch<{ ok: boolean; repoUrl: string; repoBranch: string }>("/api/admin/settings", {
         method: "PATCH",
-        body: JSON.stringify({ installerUrl }),
+        body: JSON.stringify({ repoUrl, repoBranch }),
       }),
     onSuccess: (res) => {
-      toast({ title: "Configuração salva", description: "URL de atualização salva com sucesso." });
-      setInstallerUrlDraft(null);
-      queryClient.setQueryData(["admin", "settings"], { installerUrl: res.installerUrl });
+      toast({ title: "Configuração salva", description: "Repositório de atualização salvo com sucesso." });
+      setRepoUrlDraft(null);
+      setRepoBranchDraft(null);
+      queryClient.setQueryData(["admin", "settings"], {
+        repoUrl: res.repoUrl,
+        repoBranch: res.repoBranch,
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Erro ao salvar", description: err.message, variant: "destructive" });
@@ -510,8 +516,8 @@ export default function AdminPage() {
                       size="sm"
                       className="h-9 px-4 gap-2"
                       onClick={() => updateMutation.mutate()}
-                      disabled={updateMutation.isPending || !settingsData?.installerUrl}
-                      title={!settingsData?.installerUrl ? "Configure a URL de atualização abaixo antes de atualizar." : undefined}
+                      disabled={updateMutation.isPending || !settingsData?.repoUrl}
+                      title={!settingsData?.repoUrl ? "Configure o repositório do GitHub abaixo antes de atualizar." : undefined}
                     >
                       {updateMutation.isPending ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -520,10 +526,10 @@ export default function AdminPage() {
                       )}
                       Atualizar agora
                     </Button>
-                    {!settingsData?.installerUrl && settingsData !== undefined && (
+                    {!settingsData?.repoUrl && settingsData !== undefined && (
                       <p className="text-xs text-amber-600 flex items-center gap-1">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        Configure a URL de atualização abaixo.
+                        Configure o repositório do GitHub abaixo.
                       </p>
                     )}
                   </div>
@@ -602,31 +608,42 @@ export default function AdminPage() {
                   Configuração de Atualização
                 </h2>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Informe a <strong>URL base</strong> do deploy do Replit — apenas o domínio, sem
-                  caminhos ou extensões. O botão "Atualizar agora" usa essa URL para baixar o
-                  código mais recente.
+                  Confirme o <strong>repositório do GitHub</strong> e a branch que contêm a versão
+                  oficial. O botão "Atualizar agora" busca o código mais recente sem alterar sua
+                  configuração, banco ou arquivos enviados.
                 </p>
                 <div className="rounded-md border border-border bg-muted/40 px-3 py-2 mb-4 space-y-1">
                   <p className="text-xs font-medium text-foreground">Exemplos:</p>
-                  <p className="text-xs font-mono text-green-700 dark:text-green-400">✓ https://vps-drive.replit.app</p>
-                  <p className="text-xs font-mono text-destructive">✗ https://github.com/.../scripts/update.sh</p>
-                  <p className="text-xs font-mono text-destructive">✗ https://vps-drive.replit.app/api/download/update.sh</p>
+                  <p className="text-xs font-mono text-green-700 dark:text-green-400">✓ https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git</p>
+                  <p className="text-xs font-mono text-green-700 dark:text-green-400">✓ Branch: main</p>
+                  <p className="text-xs font-mono text-destructive">✗ https://raw.githubusercontent.com/.../update.sh</p>
                 </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (installerUrlDraft !== null) {
-                      saveSettingsMutation.mutate(installerUrlDraft);
+                    if (repoUrlDraft !== null || repoBranchDraft !== null) {
+                      saveSettingsMutation.mutate({
+                        repoUrl: currentRepoUrl,
+                        repoBranch: currentRepoBranch,
+                      });
                     }
                   }}
-                  className="flex gap-2"
+                  className="flex flex-col sm:flex-row gap-2"
                 >
                   <input
                     type="url"
-                    value={currentInstallerUrl}
-                    onChange={(e) => setInstallerUrlDraft(e.target.value)}
-                    placeholder="https://vps-drive.replit.app"
+                    value={currentRepoUrl}
+                    onChange={(e) => setRepoUrlDraft(e.target.value)}
+                    placeholder="https://github.com/usuario/repositorio.git"
                     className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={currentRepoBranch}
+                    onChange={(e) => setRepoBranchDraft(e.target.value)}
+                    placeholder="main"
+                    aria-label="Branch de atualização"
+                    className="sm:w-32 h-9 rounded-md border border-input bg-background px-3 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                   <Button
                     type="submit"
@@ -634,8 +651,9 @@ export default function AdminPage() {
                     className="h-9 px-4 gap-1.5 shrink-0"
                     disabled={
                       saveSettingsMutation.isPending ||
-                      installerUrlDraft === null ||
-                      installerUrlDraft === (settingsData?.installerUrl ?? "")
+                      (repoUrlDraft === null && repoBranchDraft === null) ||
+                      (currentRepoUrl === (settingsData?.repoUrl ?? "") &&
+                        currentRepoBranch === (settingsData?.repoBranch ?? "main"))
                     }
                   >
                     {saveSettingsMutation.isPending ? (
@@ -646,10 +664,11 @@ export default function AdminPage() {
                     Salvar
                   </Button>
                 </form>
-                {settingsData?.installerUrl && installerUrlDraft === null && (
+                {settingsData?.repoUrl && repoUrlDraft === null && repoBranchDraft === null && (
                   <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    URL configurada: <span className="font-mono truncate">{settingsData.installerUrl}</span>
+                    Repositório configurado: <span className="font-mono truncate">{settingsData.repoUrl}</span>
+                    <span className="font-mono">({settingsData.repoBranch})</span>
                   </p>
                 )}
               </div>

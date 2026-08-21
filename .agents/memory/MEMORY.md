@@ -1,1 +1,2 @@
 - [Auth migration](auth-migration.md) — VPS Drive usa express-session + bcryptjs (sem Clerk); sessão em PostgreSQL via connect-pg-simple.
+- [Safe GitHub updates](safe-github-updates.md) — atualizações remotas preservam configuração, arquivos enviados e banco; mudanças de schema exigem migração revisada.

@@ -5,6 +5,8 @@ import { existsSync } from "fs";
 import { spawn } from "child_process";
 
 const router: IRouter = Router();
+const DEFAULT_GITHUB_REPO_URL = "https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git";
+const DEFAULT_GITHUB_REPO_BRANCH = "main";
 
 const workspaceRoot = process.cwd().endsWith(path.join("artifacts", "api-server"))
   ? path.resolve(process.cwd(), "../..")
@@ -19,9 +21,8 @@ router.get("/download/install.sh", async (req, res): Promise<void> => {
     return;
   }
 
-  const repoUrl = process.env.VPS_DRIVE_REPO_URL ?? "";
-  const proto = req.headers["x-forwarded-proto"] ?? req.protocol;
-  const baseUrl = `${proto}://${req.get("host")}`;
+  const repoUrl = process.env.VPS_DRIVE_REPO_URL || DEFAULT_GITHUB_REPO_URL;
+  const repoBranch = process.env.VPS_DRIVE_REPO_BRANCH || DEFAULT_GITHUB_REPO_BRANCH;
 
   let content: string;
   try {
@@ -32,15 +33,15 @@ router.get("/download/install.sh", async (req, res): Promise<void> => {
   }
 
   content = content.replace("__REPO_URL__", repoUrl);
-  content = content.replace("__INSTALLER_BASE_URL__", baseUrl);
+  content = content.replace("__REPO_BRANCH__", repoBranch);
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="install.sh"');
   res.send(content);
 });
 
-// GET /download/update.sh — serve o script de atualização com URLs injetadas
-router.get("/download/update.sh", async (req, res): Promise<void> => {
+// GET /download/update.sh — serve o script de atualização com o repositório GitHub configurado
+router.get("/download/update.sh", async (_req, res): Promise<void> => {
   const scriptPath = path.join(workspaceRoot, "scripts", "update.sh");
 
   if (!existsSync(scriptPath)) {
@@ -48,8 +49,8 @@ router.get("/download/update.sh", async (req, res): Promise<void> => {
     return;
   }
 
-  const proto = req.headers["x-forwarded-proto"] ?? req.protocol;
-  const baseUrl = `${proto}://${req.get("host")}`;
+  const repoUrl = process.env.VPS_DRIVE_REPO_URL || DEFAULT_GITHUB_REPO_URL;
+  const repoBranch = process.env.VPS_DRIVE_REPO_BRANCH || DEFAULT_GITHUB_REPO_BRANCH;
 
   let content: string;
   try {
@@ -59,7 +60,8 @@ router.get("/download/update.sh", async (req, res): Promise<void> => {
     return;
   }
 
-  content = content.replace("__INSTALLER_BASE_URL__", baseUrl);
+  content = content.replace("__REPO_URL__", repoUrl);
+  content = content.replace("__REPO_BRANCH__", repoBranch);
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="update.sh"');

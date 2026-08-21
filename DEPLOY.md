@@ -39,9 +39,19 @@ npm install -g pm2
 rsync -av --exclude='node_modules' --exclude='.git' \
   /caminho/do/projeto/ usuario@sua-vps:/opt/vps-drive/
 
-# OU via git (se usar um repositório):
+# Ou pelo repositório oficial do GitHub:
 ssh usuario@sua-vps
-git clone https://seu-repositorio.git /opt/vps-drive
+git clone --depth 1 https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git /opt/vps-drive
+```
+
+---
+
+### Instalação com um comando
+
+Para iniciar o instalador diretamente a partir do repositório oficial:
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/rodolfolucaslima18-cmd/VPS-Driver/main/scripts/install.sh)
 ```
 
 ---
@@ -238,17 +248,32 @@ Não há necessidade de serviços externos — tudo é auto-hospedado.
 
 ## Atualizar o sistema
 
+### Pelo painel
+
+Faça login como usuário Master e abra **Admin**. Em **Configuração de Atualização**,
+confirme o repositório:
+
+```text
+https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git
+```
+
+Deixe a branch como `main` e clique em **Atualizar agora**. O processo mantém o
+arquivo `.env`, o banco de dados e os arquivos enviados pelos usuários. Por
+segurança, ele não aplica mudanças automáticas ao schema do banco; use apenas
+migrações revisadas antes de atualizar uma versão que exija alteração de schema.
+
+### Pelo terminal
+
+Para qualquer instalação, inclusive uma que ainda tenha o script antigo, execute:
+
 ```bash
-cd /opt/vps-drive
-git pull  # ou rsync do novo código
+curl -fsSL https://raw.githubusercontent.com/rodolfolucaslima18-cmd/VPS-Driver/main/scripts/update.sh | sudo bash
+```
 
-pnpm install
-DATABASE_URL=... pnpm --filter @workspace/db run push --accept-data-loss
-pnpm --filter @workspace/vps-drive run build
-pnpm --filter @workspace/api-server run build
+Depois da primeira atualização, você também pode executar a cópia local:
 
-pm2 restart vps-drive-api
-sudo systemctl reload nginx
+```bash
+sudo bash /opt/vps-drive/scripts/update.sh
 ```
 
 ---

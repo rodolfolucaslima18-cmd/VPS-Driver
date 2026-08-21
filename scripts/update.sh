@@ -4,8 +4,9 @@
 #  Atualiza código, dependências e rebuild sem reinstalar.
 #
 #  Uso:
-#    bash <(curl -sL https://HOST/api/download/update.sh)
-#    bash scripts/update.sh   (de dentro do projeto)
+#    sudo VPS_DRIVE_REPO_URL=https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git \
+#      bash scripts/update.sh
+#    O painel admin define a mesma URL automaticamente.
 # ============================================================
 set -euo pipefail
 
@@ -21,11 +22,22 @@ ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 warn()  { echo -e "${YELLOW}⚠ $1${NC}"; }
 error() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
 
-# URL injetada no download pelo servidor (substitui placeholder),
-# ou passada como env var pelo painel admin (admin.ts spawn).
-# IMPORTANTE: usar ${VAR:-default} para não sobrescrever o env var já definido.
-INSTALLER_BASE_URL="${INSTALLER_BASE_URL:-__INSTALLER_BASE_URL__}"
-INSTALLER_BASE_URL="${INSTALLER_BASE_URL%/}"  # remove trailing slash
+# O repositório pode ser configurado pelo painel admin ou informado ao executar
+# o script. O fallback mantém o instalador funcional para instalações novas.
+DEFAULT_GIT_REPO="https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
+REPO_PLACEHOLDER="__REPO""_URL__"
+BRANCH_PLACEHOLDER="__REPO""_BRANCH__"
+GIT_REPO="${VPS_DRIVE_REPO_URL:-__REPO_URL__}"
+GIT_BRANCH="${VPS_DRIVE_REPO_BRANCH:-__REPO_BRANCH__}"
+
+if [[ -z "$GIT_REPO" || "$GIT_REPO" == "$REPO_PLACEHOLDER" ]]; then
+  GIT_REPO="$DEFAULT_GIT_REPO"
+fi
+if [[ -z "$GIT_BRANCH" || "$GIT_BRANCH" == "$BRANCH_PLACEHOLDER" ]]; then
+  GIT_BRANCH="main"
+fi
+
+GIT_REPO="${GIT_REPO%/}"
 
 echo -e "
 ${BOLD}${CYAN}╔══════════════════════════════════════╗
@@ -53,84 +65,99 @@ if [[ ! -f "$ENV_FILE" ]]; then
   error "Arquivo .env não encontrado em $ENV_FILE. A instalação parece incompleta."
 fi
 
-# Ler variáveis necessárias do .env
+# Ler as variáveis necessárias sem executar o conteúdo do .env.
 APP_PORT=$(grep "^PORT=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "5000")
 APP_PORT="${APP_PORT:-5000}"
-DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "")
+STORAGE_PATH=$(grep "^STORAGE_PATH=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "/data/vps-drive")
+STORAGE_PATH="${STORAGE_PATH:-/data/vps-drive}"
 
 ok "Configuração carregada (porta: $APP_PORT)"
 
-# Garantir ONLYOFFICE_URL e VITE_ONLYOFFICE_URL no .env (sem sobrescrever se já existem)
-if ! grep -q "^ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
-  echo "ONLYOFFICE_URL=" >> "$ENV_FILE"
-  warn "ONLYOFFICE_URL adicionado ao .env (vazio). Edite o .env para configurar o OnlyOffice."
-fi
-if ! grep -q "^VITE_ONLYOFFICE_URL=" "$ENV_FILE" 2>/dev/null; then
-  echo "VITE_ONLYOFFICE_URL=" >> "$ENV_FILE"
+# ── Buscar código novo no GitHub ──────────────────────────────
+step "Buscando código atualizado no GitHub..."
+
+if ! command -v git &>/dev/null; then
+  error "Git não está instalado. Instale com: apt-get install -y git"
 fi
 
-# ── Baixar e extrair código novo ─────────────────────────────
-step "Baixando código atualizado..."
-
-if [[ -z "$INSTALLER_BASE_URL" || "$INSTALLER_BASE_URL" == "__INSTALLER_BASE_URL__" ]]; then
-  error "URL de atualização não definida.
-  Configure a URL base do deploy do Replit no painel admin:
-  Admin → Configuração de Atualização
-  Exemplo correto: https://vps-drive.replit.app"
+if ! [[ "$GIT_REPO" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(\.git)?$ ||
+        "$GIT_REPO" =~ ^git@github\.com:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(\.git)?$ ]]; then
+  error "Repositório inválido: $GIT_REPO
+  Informe a URL do repositório GitHub, por exemplo:
+  https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
 fi
 
-# Validar que a URL não é um caminho de script (erro comum)
-if [[ "$INSTALLER_BASE_URL" == *".sh"* || "$INSTALLER_BASE_URL" == *"/scripts/"* || "$INSTALLER_BASE_URL" == *"github.com"* ]]; then
-  error "URL inválida: $INSTALLER_BASE_URL
-  A URL deve ser a URL BASE do deploy do Replit, sem caminhos ou extensões.
-  Exemplo correto: https://vps-drive.replit.app
-  Exemplo ERRADO:  https://github.com/.../scripts/update.sh"
+if ! [[ "$GIT_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] ||
+   [[ "$GIT_BRANCH" == -* || "$GIT_BRANCH" == *".."* || "$GIT_BRANCH" == *"//"* ]]; then
+  error "Branch inválida: $GIT_BRANCH"
 fi
 
 TMPDIR_UPDATE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
 
-TARBALL_URL="$INSTALLER_BASE_URL/api/download/project.tar.gz"
-echo "  Verificando acesso a $TARBALL_URL..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$TARBALL_URL" 2>/dev/null || echo "000")
-if [[ "$HTTP_CODE" != "200" ]]; then
-  error "Não foi possível acessar $TARBALL_URL (HTTP $HTTP_CODE).
-  Verifique se:
-  1. A URL configurada está correta: $INSTALLER_BASE_URL
-  2. O deploy do Replit está ativo e acessível
-  3. A URL é a URL BASE (sem /api/, sem /scripts/, sem .sh)"
-fi
-
-echo "  Baixando código..."
-curl -sL --max-time 300 "$TARBALL_URL" \
-  | tar -xzf - -C "$TMPDIR_UPDATE"
-ok "Código baixado e extraído"
-
-# ── Copiar arquivos preservando .env e dados ─────────────────
-step "Aplicando atualização (preservando .env e /data)..."
-
-# Backup do .env atual
+# Backup da configuração atual antes de atualizar os arquivos rastreados pelo Git.
 cp "$ENV_FILE" "$TMPDIR_UPDATE/.env.bak"
 
-# Sincronizar código novo para INSTALL_DIR, excluindo arquivos que não devem ser sobrescritos.
-# IMPORTANTE: --exclude='storage' protege uploads e dados persistentes do usuário.
-rsync -a --delete \
-  --exclude='.env' \
-  --exclude='node_modules' \
-  --exclude='storage' \
-  --exclude='.git' \
-  --exclude='artifacts/api-server/dist' \
-  --exclude='artifacts/vps-drive/dist' \
-  --exclude='artifacts/mockup-sandbox/dist' \
-  "$TMPDIR_UPDATE/" "$INSTALL_DIR/"
-
-# Garantir que o .env não foi sobrescrito
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$TMPDIR_UPDATE/.env.bak" "$ENV_FILE"
-  warn ".env restaurado do backup"
+# O caminho padrão fica fora da instalação, mas instalações antigas podem guardar
+# arquivos em um diretório relativo. Faça backup explícito antes de um reset Git ou
+# rsync --delete para preservar inclusive arquivos com o mesmo nome do repositório.
+INSTALL_DIR_ABS=$(realpath -m "$INSTALL_DIR")
+if [[ "$STORAGE_PATH" = /* ]]; then
+  STORAGE_DIR=$(realpath -m "$STORAGE_PATH")
+else
+  STORAGE_DIR=$(realpath -m "$INSTALL_DIR_ABS/$STORAGE_PATH")
 fi
 
-ok "Código atualizado"
+STORAGE_BACKUP_DIR="$TMPDIR_UPDATE/storage.bak"
+STORAGE_BACKUP_READY=false
+if [[ "$STORAGE_DIR" == "$INSTALL_DIR_ABS" ]]; then
+  error "STORAGE_PATH não pode ser o próprio diretório da instalação: $STORAGE_PATH"
+fi
+if [[ "$STORAGE_DIR" == "$INSTALL_DIR_ABS/"* && -d "$STORAGE_DIR" ]]; then
+  mkdir -p "$STORAGE_BACKUP_DIR"
+  cp -a "$STORAGE_DIR/." "$STORAGE_BACKUP_DIR/"
+  STORAGE_BACKUP_READY=true
+  ok "Backup dos arquivos enviados criado"
+fi
+
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+  echo "  Atualizando repositório existente: $GIT_REPO ($GIT_BRANCH)"
+  if git -C "$INSTALL_DIR" remote get-url origin >/dev/null 2>&1; then
+    git -C "$INSTALL_DIR" remote set-url origin "$GIT_REPO"
+  else
+    git -C "$INSTALL_DIR" remote add origin "$GIT_REPO"
+  fi
+  git -C "$INSTALL_DIR" fetch --depth 1 origin "$GIT_BRANCH"
+  git -C "$INSTALL_DIR" checkout --force -B "$GIT_BRANCH" FETCH_HEAD
+  git -C "$INSTALL_DIR" reset --hard FETCH_HEAD
+else
+  echo "  A instalação não tinha repositório Git; preparando cópia atualizada..."
+  SOURCE_DIR="$TMPDIR_UPDATE/repository"
+  git clone --depth 1 --branch "$GIT_BRANCH" "$GIT_REPO" "$SOURCE_DIR"
+  rsync -a --delete \
+    --exclude='.env' \
+    --exclude='node_modules' \
+    --exclude='storage' \
+    --exclude='artifacts/api-server/dist' \
+    --exclude='artifacts/vps-drive/dist' \
+    --exclude='artifacts/mockup-sandbox/dist' \
+    "$SOURCE_DIR/" "$INSTALL_DIR/"
+fi
+
+# O .env nunca deve ser alterado pela atualização, inclusive em instalações antigas
+# onde ele tenha sido incluído no histórico do Git por engano.
+if [[ ! -f "$ENV_FILE" ]] || ! cmp -s "$ENV_FILE" "$TMPDIR_UPDATE/.env.bak"; then
+  cp "$TMPDIR_UPDATE/.env.bak" "$ENV_FILE"
+  warn ".env restaurado do backup para preservar a configuração"
+fi
+
+if [[ "$STORAGE_BACKUP_READY" == true ]]; then
+  mkdir -p "$STORAGE_DIR"
+  cp -a "$STORAGE_BACKUP_DIR/." "$STORAGE_DIR/"
+  ok "Arquivos enviados restaurados"
+fi
+
+ok "Código da branch $GIT_BRANCH aplicado"
 
 cd "$INSTALL_DIR"
 
@@ -180,19 +207,10 @@ if [ $_pnpm_ec -ne 0 ] && ! echo "$_pnpm_out" | grep -q "ERR_PNPM_IGNORED_BUILDS
 fi
 ok "Dependências instaladas"
 
-# ── Aplicar migrações de schema (opcional) ───────────────────
-if [[ -n "$DATABASE_URL" ]]; then
-  step "Aplicando schema do banco de dados..."
-  set +e
-  _db_out=$(DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push-force 2>&1); _db_ec=$?
-  set -e
-  echo "$_db_out" | tail -5
-  if [ $_db_ec -ne 0 ]; then
-    warn "drizzle-kit push falhou (código $_db_ec) — continuando mesmo assim."
-  else
-    ok "Schema aplicado"
-  fi
-fi
+# Alterações de schema não são aplicadas automaticamente. O comando anterior
+# usava drizzle-kit push --force, que pode aceitar mudanças destrutivas e causar
+# perda de dados. Atualizações de banco devem ser feitas com migrações revisadas.
+ok "Banco de dados preservado (nenhuma alteração automática de schema)"
 
 # ── Carregar variáveis do .env para build ────────────────────
 # Necessário para que VITE_* sejam embutidas no bundle do frontend

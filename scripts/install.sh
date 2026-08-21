@@ -5,7 +5,7 @@
 #
 #  Uso:
 #    sudo bash scripts/install.sh             (de dentro do projeto)
-#    sudo bash <(curl -sL https://HOST/api/download/install.sh)
+#    sudo bash <(curl -sL https://raw.githubusercontent.com/rodolfolucaslima18-cmd/VPS-Driver/main/scripts/install.sh)
 # ============================================================
 set -euo pipefail
 
@@ -190,10 +190,20 @@ fi
 # ── Localizar ou obter o código do app ────────────────────────
 step "Localizando código do VPS Drive..."
 
-# URLs injetadas pelo servidor no momento do download do script
+# O repositório oficial é usado quando o script é baixado diretamente do GitHub.
+# O endpoint de download também pode injetar outro repositório configurado.
 DEFAULT_REPO_URL="__REPO_URL__"
-INSTALLER_BASE_URL="__INSTALLER_BASE_URL__"
+DEFAULT_REPO_BRANCH="__REPO_BRANCH__"
+REPO_PLACEHOLDER="__REPO""_URL__"
+BRANCH_PLACEHOLDER="__REPO""_BRANCH__"
+if [[ -z "$DEFAULT_REPO_URL" || "$DEFAULT_REPO_URL" == "$REPO_PLACEHOLDER" ]]; then
+  DEFAULT_REPO_URL="https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git"
+fi
+if [[ -z "$DEFAULT_REPO_BRANCH" || "$DEFAULT_REPO_BRANCH" == "$BRANCH_PLACEHOLDER" ]]; then
+  DEFAULT_REPO_BRANCH="main"
+fi
 GIT_REPO="${VPS_DRIVE_REPO_URL:-$DEFAULT_REPO_URL}"
+GIT_BRANCH="${VPS_DRIVE_REPO_BRANCH:-$DEFAULT_REPO_BRANCH}"
 
 # Detectar modo local: executado de dentro do projeto
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./install.sh}")" 2>/dev/null && pwd || echo "")"
@@ -216,27 +226,15 @@ if [[ -n "$PROJECT_ROOT" ]]; then
   fi
   ok "Código localizado em $INSTALL_DIR"
 elif [[ -f "$INSTALL_DIR/package.json" ]]; then
-  # Instalação prévia detectada — atualizar via download se possível
+  # Instalação prévia detectada. O instalador não substitui arquivos, dados ou
+  # configurações existentes; use o botão Atualizar agora no painel admin.
   echo "  Instalação detectada em $INSTALL_DIR"
-  if [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
-    echo "  Atualizando código via $INSTALLER_BASE_URL..."
-    curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-      | tar -xzf - --overwrite --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
-    echo "  Código atualizado"
-  fi
-  ok "Usando instalação existente em $INSTALL_DIR"
-elif [[ -n "$GIT_REPO" && "$GIT_REPO" != "__REPO_URL__" ]]; then
+  ok "Usando instalação existente sem alterar os arquivos"
+elif [[ -n "$GIT_REPO" ]]; then
   # Modo remoto via git
-  echo "  Clonando repositório: $GIT_REPO"
-  git clone "$GIT_REPO" "$INSTALL_DIR"
+  echo "  Clonando repositório: $GIT_REPO (branch: $GIT_BRANCH)"
+  git clone --depth 1 --branch "$GIT_BRANCH" "$GIT_REPO" "$INSTALL_DIR"
   ok "Repositório clonado em $INSTALL_DIR"
-elif [[ -n "$INSTALLER_BASE_URL" && "$INSTALLER_BASE_URL" != "__INSTALLER_BASE_URL__" ]]; then
-  # Baixar o código diretamente do servidor que serviu este instalador
-  echo "  Baixando código de $INSTALLER_BASE_URL..."
-  mkdir -p "$INSTALL_DIR"
-  curl -sL "$INSTALLER_BASE_URL/api/download/project.tar.gz" \
-    | tar -xzf - --exclude='./node_modules' --exclude='./.git' -C "$INSTALL_DIR"
-  ok "Código extraído em $INSTALL_DIR"
 else
   # Último recurso: pedir URL git manualmente
   echo ""

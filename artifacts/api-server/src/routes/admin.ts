@@ -22,6 +22,8 @@ interface UpdateRun {
 }
 
 let currentUpdate: UpdateRun | null = null;
+const DEFAULT_GITHUB_REPO_URL = "https://github.com/rodolfolucaslima18-cmd/VPS-Driver.git";
+const DEFAULT_GITHUB_REPO_BRANCH = "main";
 
 // GET /admin/users — listar todos os usuários
 router.get("/admin/users", requireMaster, async (_req, res): Promise<void> => {
@@ -267,30 +269,62 @@ function writeEnvVar(key: string, value: string): void {
   process.env[key] = value;
 }
 
+function normalizeGitHubRepoUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  const githubUrl = /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\.git)?$/;
+
+  if (!githubUrl.test(trimmed)) return null;
+  return trimmed.endsWith(".git") ? trimmed : `${trimmed}.git`;
+}
+
+function normalizeGitBranch(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^[A-Za-z0-9._/-]+$/.test(trimmed)) return null;
+  if (trimmed.startsWith("-") || trimmed.includes("..") || trimmed.includes("//")) return null;
+  return trimmed;
+}
+
+function getUpdateRepoUrl(): string {
+  return normalizeGitHubRepoUrl(readEnvVar("VPS_DRIVE_REPO_URL")) ?? DEFAULT_GITHUB_REPO_URL;
+}
+
+function getUpdateRepoBranch(): string {
+  return normalizeGitBranch(readEnvVar("VPS_DRIVE_REPO_BRANCH")) ?? DEFAULT_GITHUB_REPO_BRANCH;
+}
+
 // GET /admin/settings — lê configurações editáveis (apenas master)
 router.get("/admin/settings", requireMaster, (_req, res): void => {
-  res.json({ installerUrl: readEnvVar("VPS_DRIVE_INSTALLER_URL") });
+  res.json({ repoUrl: getUpdateRepoUrl(), repoBranch: getUpdateRepoBranch() });
 });
 
 // PATCH /admin/settings — salva configurações editáveis (apenas master)
 router.patch("/admin/settings", requireMaster, (req, res): void => {
-  const { installerUrl } = req.body as { installerUrl?: string };
+  const { repoUrl, repoBranch } = req.body as { repoUrl?: string; repoBranch?: string };
 
-  if (installerUrl === undefined) {
-    res.status(400).json({ error: "Campo 'installerUrl' é obrigatório." });
+  if (repoUrl === undefined && repoBranch === undefined) {
+    res.status(400).json({ error: "Informe o repositório ou a branch de atualização." });
     return;
   }
 
-  const trimmed = installerUrl.trim().replace(/\/$/, "");
+  const nextRepoUrl = repoUrl === undefined ? getUpdateRepoUrl() : normalizeGitHubRepoUrl(repoUrl);
+  const nextRepoBranch = repoBranch === undefined ? getUpdateRepoBranch() : normalizeGitBranch(repoBranch);
 
-  if (trimmed !== "" && !/^https?:\/\/.+/.test(trimmed)) {
-    res.status(400).json({ error: "URL inválida. Use o formato https://exemplo.replit.app" });
+  if (!nextRepoUrl) {
+    res.status(400).json({
+      error: "Repositório inválido. Use uma URL do GitHub, como https://github.com/usuario/repositorio.git",
+    });
+    return;
+  }
+
+  if (!nextRepoBranch) {
+    res.status(400).json({ error: "Branch inválida. Use, por exemplo, main." });
     return;
   }
 
   try {
-    writeEnvVar("VPS_DRIVE_INSTALLER_URL", trimmed);
-    res.json({ ok: true, installerUrl: trimmed });
+    writeEnvVar("VPS_DRIVE_REPO_URL", nextRepoUrl);
+    writeEnvVar("VPS_DRIVE_REPO_BRANCH", nextRepoBranch);
+    res.json({ ok: true, repoUrl: nextRepoUrl, repoBranch: nextRepoBranch });
   } catch (err) {
     console.error("Erro ao salvar configuração:", err);
     res.status(500).json({ error: "Erro ao salvar configuração." });
@@ -337,14 +371,8 @@ router.post("/admin/update", requireMaster, (req, res): void => {
       return;
     }
 
-    const installerBaseUrl = readEnvVar("VPS_DRIVE_INSTALLER_URL");
-    if (!installerBaseUrl) {
-      res.status(400).json({
-        error:
-          "URL de atualização não configurada. Configure-a na seção 'Configuração de Atualização' do painel admin.",
-      });
-      return;
-    }
+    const repoUrl = getUpdateRepoUrl();
+    const repoBranch = getUpdateRepoBranch();
 
     // If a previous update is still running, reject
     if (currentUpdate?.running) {
@@ -364,7 +392,11 @@ router.post("/admin/update", requireMaster, (req, res): void => {
 
     const child = spawn("bash", [scriptPath], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, INSTALLER_BASE_URL: installerBaseUrl },
+      env: {
+        ...process.env,
+        VPS_DRIVE_REPO_URL: repoUrl,
+        VPS_DRIVE_REPO_BRANCH: repoBranch,
+      },
       cwd: installDir,
     });
 
