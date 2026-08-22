@@ -378,6 +378,9 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
             callbackUrl: session.callbackUrl,
             lang: "pt-BR",
           },
+          events: {
+            onRequestClose: onClose,
+          },
           height: "100%",
           width: "100%",
         });
@@ -432,7 +435,7 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
         instanceRef.current = null;
       }
     };
-  }, [session]);
+  }, [session, onClose]);
 
   if (error) {
     return (
