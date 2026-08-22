@@ -351,7 +351,12 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const instanceRef = useRef<any>(null);
+  const onCloseRef = useRef(onClose);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,7 +384,7 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
             lang: "pt-BR",
           },
           events: {
-            onRequestClose: onClose,
+            onRequestClose: () => onCloseRef.current(),
           },
           height: "100%",
           width: "100%",
@@ -435,7 +440,7 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
         instanceRef.current = null;
       }
     };
-  }, [session, onClose]);
+  }, [session]);
 
   if (error) {
     return (
@@ -535,9 +540,21 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editSession, setEditSession] = useState<EditSession | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+  const isClosingEditorRef = useRef(false);
+
+  const closeEditor = useCallback(() => {
+    if (isClosingEditorRef.current) return;
+
+    isClosingEditorRef.current = true;
+    setIsEditorOpen(false);
+    setEditSession(null);
+    onRefresh?.();
+    onClose();
+  }, [onClose, onRefresh]);
 
   const openEditor = useCallback(async () => {
     if (!file || !officeKind) return;
+    isClosingEditorRef.current = false;
     setEditLoading(true);
     try {
       const res = await fetch(
@@ -675,12 +692,12 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
     </Sheet>
 
     {/* OnlyOffice Editor — fullscreen dialog */}
-    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) { setIsEditorOpen(false); setEditSession(null); onRefresh?.(); } }}>
+    <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) closeEditor(); }}>
       <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col">
         {editSession && (
           <OnlyOfficeEditor
             session={editSession}
-            onClose={() => { setIsEditorOpen(false); setEditSession(null); }}
+            onClose={closeEditor}
           />
         )}
       </DialogContent>
