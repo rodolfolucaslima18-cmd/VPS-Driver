@@ -1,0 +1,9 @@
+# Cron job para reiniciar o VPS Drive após o build via botão "Atualizar agora"
+# O container app escreve o arquivo .restart-trigger e este cron job
+# executa o docker compose up a partir do HOST (fora do container).
+#
+# Instalação (uma vez):
+#   sudo cp /opt/vps-drive-repo/scripts/vps-drive-restart.cron /etc/cron.d/vps-drive-restart
+#   sudo chmod 644 /etc/cron.d/vps-drive-restart
+#
+* * * * * root [ -f /opt/vps-drive-repo/.restart-trigger ] && rm -f /opt/vps-drive-repo/.restart-trigger && cd /opt/vps-drive-repo && /usr/bin/docker compose --project-name vps-drive-repo up -d --no-deps app nginx >> /var/log/vps-drive-restart.log 2>&1

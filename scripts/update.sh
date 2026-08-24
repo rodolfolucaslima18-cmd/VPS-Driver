@@ -110,45 +110,57 @@ update_docker() {
   step "Reconstruindo imagem Docker com código atualizado..."
   cd "$INSTALL_DIR"
 
-  # O nome do projeto deve ser explícito para que o Docker Compose não use o
-  # hostname do container atual como prefixo (causa nomes como "abc123_projeto-app-1")
   COMPOSE_PROJECT="$(basename "$INSTALL_DIR")"
-  export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
 
   # Injeta a data/hora atual como BUILD_DATE para aparecer no painel admin
   export BUILD_DATE="$(date '+%d/%m/%Y %H:%M')"
 
-  # Rebuild sem derrubar o banco (apenas app e nginx sobem novamente)
+  # Rebuild da imagem (seguro de dentro do container via docker socket)
   docker compose --project-name "$COMPOSE_PROJECT" build app
   ok "Imagem reconstruída"
 
-  step "Reiniciando containers..."
-  docker compose --project-name "$COMPOSE_PROJECT" up -d --no-deps app nginx
-  ok "Containers atualizados"
+  # ── Reinício via HOST (trigger file) ─────────────────────────
+  # NÃO rodamos `docker compose up` daqui: o script roda DENTRO do container
+  # app e `docker compose up` mandaria SIGTERM para o próprio container antes
+  # de criar o novo, deixando o novo preso em "Created" com nome incorreto.
+  #
+  # Solução: escreve um arquivo de trigger que um cron job no HOST detecta
+  # e executa o `docker compose up` de fora, corretamente.
+  # O cron job é instalado em /etc/cron.d/vps-drive-restart (ver DEPLOY.md).
 
-  step "Verificando saúde do servidor..."
-  echo "  Aguardando inicialização..."
-  for i in $(seq 1 20); do
+  TRIGGER_FILE="$INSTALL_DIR/.restart-trigger"
+
+  # Verifica se o cron job está configurado (arquivo existe em /etc/cron.d/)
+  if ! [ -f /etc/cron.d/vps-drive-restart ] && ! crontab -l 2>/dev/null | grep -q "vps-drive-restart\|restart-trigger"; then
+    warn "Cron job de reinício não encontrado em /etc/cron.d/vps-drive-restart"
+    warn "Para ativar o reinício automático, execute no host:"
+    warn "  sudo cp $INSTALL_DIR/scripts/vps-drive-restart.cron /etc/cron.d/vps-drive-restart"
+    warn "  sudo chmod 644 /etc/cron.d/vps-drive-restart"
+  fi
+
+  step "Agendando reinício do servidor..."
+  touch "$TRIGGER_FILE"
+  ok "Sinal de reinício enviado — aguardando cron job do host (até 60s)..."
+
+  step "Aguardando servidor reiniciar..."
+  CURRENT_APP_ID=$(docker ps -q --filter "name=${COMPOSE_PROJECT}-app" | head -1)
+  for i in $(seq 1 30); do
     sleep 5
-    # Verifica saúde via docker inspect (funciona de dentro do container via socket)
-    APP_ID=$(docker compose --project-name "$COMPOSE_PROJECT" ps -q app 2>/dev/null | head -1)
-    if [[ -n "$APP_ID" ]]; then
-      HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$APP_ID" 2>/dev/null || echo "unknown")
+    NEW_APP_ID=$(docker ps -q --filter "name=${COMPOSE_PROJECT}-app" | head -1)
+    if [[ -n "$NEW_APP_ID" && "$NEW_APP_ID" != "$CURRENT_APP_ID" ]]; then
+      HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_APP_ID" 2>/dev/null || echo "unknown")
       if [[ "$HEALTH" == "healthy" ]]; then
-        ok "Servidor saudável (container: ${APP_ID:0:12})"
-        break
+        ok "Servidor saudável (container: ${NEW_APP_ID:0:12})"
+        docker ps --filter "name=${COMPOSE_PROJECT}" --format "table {{.Names}}\t{{.Status}}"
+        return 0
       fi
-    else
-      HEALTH="sem container"
     fi
-    if [[ $i -eq 20 ]]; then
-      docker compose --project-name "$COMPOSE_PROJECT" logs app --tail=20 2>/dev/null || true
-      error "Servidor não ficou saudável após atualização. Veja os logs acima."
-    fi
-    echo "  Tentativa $i/20: health=$HEALTH — aguardando..."
+    echo "  Aguardando reinício... ($((i*5))s)"
   done
 
-  docker compose --project-name "$COMPOSE_PROJECT" ps
+  # Após 150s sem reinício: avisa mas não falha (o cron job pode demorar até 60s)
+  warn "Reinício ainda em andamento — o servidor deve voltar em instantes."
+  warn "Acompanhe com: docker ps | grep ${COMPOSE_PROJECT}"
 }
 
 # ============================================================
