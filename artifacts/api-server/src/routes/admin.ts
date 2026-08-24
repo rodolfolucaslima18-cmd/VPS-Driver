@@ -349,6 +349,7 @@ router.get("/admin/version", requireMaster, (_req, res): void => {
       nodeVersion: process.version,
       uptimeSeconds: Math.floor(process.uptime()),
       startedAt: SERVER_STARTED_AT,
+      buildDate: process.env.BUILD_DATE ?? null,
     });
   } catch {
     res.json({
@@ -356,6 +357,7 @@ router.get("/admin/version", requireMaster, (_req, res): void => {
       nodeVersion: process.version,
       uptimeSeconds: 0,
       startedAt: SERVER_STARTED_AT,
+      buildDate: process.env.BUILD_DATE ?? null,
     });
   }
 });

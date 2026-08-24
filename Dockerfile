@@ -24,6 +24,10 @@ RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 ARG VITE_ONLYOFFICE_URL=""
 ENV VITE_ONLYOFFICE_URL=${VITE_ONLYOFFICE_URL}
 
+# Data de compilação injetada no build (visível no painel admin)
+ARG BUILD_DATE=""
+ENV BUILD_DATE=${BUILD_DATE}
+
 RUN BASE_PATH=/ PORT=3000 NODE_ENV=production \
     pnpm --filter @workspace/vps-drive run build && \
     pnpm --filter @workspace/api-server run build

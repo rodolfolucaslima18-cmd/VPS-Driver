@@ -71,6 +71,7 @@ type VersionInfo = {
   nodeVersion: string;
   uptimeSeconds: number;
   startedAt: string;
+  buildDate?: string;
 };
 
 type UpdateStatus = "idle" | "updating" | "success" | "error";
@@ -506,6 +507,12 @@ export default function AdminPage() {
                     <p className="text-xs text-muted-foreground">Uptime</p>
                     <p className="text-sm font-mono font-medium">
                       {versionData ? formatUptime(versionData.uptimeSeconds) : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Build</p>
+                    <p className="text-sm font-mono font-medium">
+                      {versionData?.buildDate ?? "—"}
                     </p>
                   </div>
                 </div>

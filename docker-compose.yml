@@ -19,6 +19,7 @@ services:
       context: .
       args:
         VITE_ONLYOFFICE_URL: http://${VPS_HOST}/onlyoffice
+        BUILD_DATE: ${BUILD_DATE:-}
     restart: unless-stopped
     depends_on:
       db:

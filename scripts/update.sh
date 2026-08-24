@@ -110,6 +110,8 @@ update_docker() {
   cd "$INSTALL_DIR"
 
   # Rebuild sem derrubar o banco (apenas app e nginx sobem novamente)
+  # Injeta a data/hora atual como BUILD_DATE para aparecer no painel admin
+  export BUILD_DATE="$(date '+%d/%m/%Y %H:%M')"
   docker compose build app
   ok "Imagem reconstruída"
 
