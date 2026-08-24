@@ -57,18 +57,12 @@ step "Detectando tipo de instalação..."
 
 INSTALL_TYPE="unknown"
 
-if [[ -f "$INSTALL_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null; then
-  # Verificar se containers do VPS Drive existem
-  _proj="$(basename "$INSTALL_DIR")"
-  if docker compose --project-name "$_proj" -f "$INSTALL_DIR/docker-compose.yml" ps --quiet 2>/dev/null | grep -q .; then
-    INSTALL_TYPE="docker"
-  elif [[ ! -f "$INSTALL_DIR/package.json" ]]; then
-    # docker-compose.yml existe mas containers não rodando — ainda é Docker
-    INSTALL_TYPE="docker"
-  fi
-fi
-
-if [[ "$INSTALL_TYPE" == "unknown" && -f "$INSTALL_DIR/package.json" ]]; then
+# docker-compose.yml tem prioridade absoluta sobre package.json.
+# A presença do arquivo indica instalação Docker independentemente de
+# package.json existir (que agora faz parte do repositório commitado).
+if [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+  INSTALL_TYPE="docker"
+elif [[ -f "$INSTALL_DIR/package.json" ]]; then
   INSTALL_TYPE="pm2"
 fi
 
