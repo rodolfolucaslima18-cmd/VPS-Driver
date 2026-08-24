@@ -44,7 +44,7 @@ ${BOLD}${CYAN}╔═════════════════════
 # ── Localizar instalação ─────────────────────────────────────
 step "Localizando instalação do VPS Drive..."
 
-INSTALL_DIR="${VPS_DRIVE_DIR:-/opt/vps-drive}"
+INSTALL_DIR="${VPS_DRIVE_DIR:-/opt/vps-drive-repo}"
 
 # Aceita instalação Docker (sem package.json no host) ou PM2 (com package.json)
 if [[ ! -f "$INSTALL_DIR/docker-compose.yml" && ! -f "$INSTALL_DIR/package.json" ]]; then
@@ -83,6 +83,28 @@ esac
 update_docker() {
   ENV_FILE="$INSTALL_DIR/.env"
   [[ ! -f "$ENV_FILE" ]] && error "Arquivo .env não encontrado em $ENV_FILE."
+
+  # ── Buscar código novo do GitHub ──────────────────────────
+  step "Buscando atualizações do repositório..."
+  if [[ -d "$INSTALL_DIR/.git" ]] && command -v git &>/dev/null; then
+    # Configura credenciais se disponíveis
+    if [[ -f "/root/.git-credentials" ]]; then
+      git config --global credential.helper "store --file /root/.git-credentials" 2>/dev/null || true
+    fi
+
+    # Atualiza a URL remota se VPS_DRIVE_REPO_URL estiver configurada
+    if [[ -n "$GIT_REPO" && "$GIT_REPO" != "$REPO_PLACEHOLDER" ]]; then
+      git -C "$INSTALL_DIR" remote set-url origin "$GIT_REPO" 2>/dev/null || true
+    fi
+
+    if git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null; then
+      ok "Repositório atualizado com sucesso"
+    else
+      warn "Não foi possível atualizar o repositório — usando código local atual"
+    fi
+  else
+    warn "Diretório não é um repositório git ou git não disponível — reconstruindo do código local"
+  fi
 
   step "Reconstruindo imagem Docker com código atualizado..."
   cd "$INSTALL_DIR"
