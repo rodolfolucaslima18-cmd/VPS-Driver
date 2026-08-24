@@ -99,16 +99,22 @@ update_docker() {
   echo "  Aguardando inicialização..."
   for i in $(seq 1 20); do
     sleep 5
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/api/healthz" 2>/dev/null || echo "000")
-    if [[ "$HTTP_STATUS" == "200" ]]; then
-      ok "Servidor respondendo: http://localhost/api/healthz → HTTP 200"
-      break
+    # Verifica saúde via docker inspect (funciona de dentro do container via socket)
+    APP_ID=$(docker compose ps -q app 2>/dev/null | head -1)
+    if [[ -n "$APP_ID" ]]; then
+      HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$APP_ID" 2>/dev/null || echo "unknown")
+      if [[ "$HEALTH" == "healthy" ]]; then
+        ok "Servidor saudável (container: ${APP_ID:0:12})"
+        break
+      fi
+    else
+      HEALTH="sem container"
     fi
     if [[ $i -eq 20 ]]; then
       docker compose logs app --tail=20 2>/dev/null || true
-      error "Servidor não respondeu após atualização. Veja os logs acima."
+      error "Servidor não ficou saudável após atualização. Veja os logs acima."
     fi
-    echo "  Tentativa $i/20: HTTP $HTTP_STATUS — aguardando..."
+    echo "  Tentativa $i/20: health=$HEALTH — aguardando..."
   done
 
   docker compose ps
