@@ -85,11 +85,37 @@ export function ShareModal({ filePath, fileName, onClose }: Props) {
 
   async function copyLink() {
     if (!shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+
+    // navigator.clipboard só funciona em HTTPS; fallback para execCommand em HTTP
+    const didCopy = await (async () => {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          return true;
+        } catch {
+          // segue para o fallback
+        }
+      }
+      // Fallback: cria textarea temporário e usa execCommand
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = shareUrl;
+        ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (didCopy) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
+    } else {
       toast({ title: "Não foi possível copiar", variant: "destructive" });
     }
   }
