@@ -456,11 +456,13 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
   }
 
   return (
-    <div
-      ref={containerRef}
-      id="onlyoffice-editor-container"
-      style={{ width: "100%", height: "100%" }}
-    />
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+      <div
+        ref={containerRef}
+        id="onlyoffice-editor-container"
+        style={{ flex: 1, minHeight: 0 }}
+      />
+    </div>
   );
 }
 
@@ -697,27 +699,32 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
     {/* OnlyOffice Editor — fullscreen dialog */}
     <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) closeEditor(); }}>
       <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col [&>button]:hidden">
-        {editSession && (
-          <OnlyOfficeEditor
-            session={editSession}
-            onClose={closeEditor}
-          />
-        )}
+        {/* Barra acima do iframe — fora do alcance do iframe, sempre clicável */}
+        <div className="flex items-center justify-between px-4 py-2 bg-[#333] text-white shrink-0">
+          <span className="text-sm font-medium truncate max-w-[70vw]">
+            {editSession?.fileName ?? "Editor"}
+          </span>
+          <button
+            onClick={closeEditor}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/25 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors"
+            title="Fechar editor e voltar ao Drive"
+          >
+            <X className="w-3.5 h-3.5" />
+            Fechar
+          </button>
+        </div>
+
+        {/* iframe do OnlyOffice ocupa o espaço restante */}
+        <div className="flex-1 min-h-0">
+          {editSession && (
+            <OnlyOfficeEditor
+              session={editSession}
+              onClose={closeEditor}
+            />
+          )}
+        </div>
       </DialogContent>
     </Dialog>
-
-    {/* Botão flutuante de fechar — fica acima do iframe do OnlyOffice */}
-    {isEditorOpen && (
-      <button
-        onClick={closeEditor}
-        title="Fechar editor e voltar ao Drive"
-        style={{ position: "fixed", top: 12, right: 12, zIndex: 99999 }}
-        className="flex items-center gap-1.5 bg-black/70 hover:bg-black/90 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg transition-colors backdrop-blur-sm"
-      >
-        <X className="w-3.5 h-3.5" />
-        Fechar
-      </button>
-    )}
     </>
   );
 }
