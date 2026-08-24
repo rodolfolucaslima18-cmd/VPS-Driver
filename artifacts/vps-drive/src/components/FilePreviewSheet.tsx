@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Download, File, AlertCircle, Loader2, Pencil } from "lucide-react";
+import { Download, File, AlertCircle, Loader2, Pencil, X } from "lucide-react";
 import DOMPurify from "dompurify";
 import {
   Sheet,
@@ -382,6 +382,9 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
           editorConfig: {
             callbackUrl: session.callbackUrl,
             lang: "pt-BR",
+            customization: {
+              close: { visible: true, text: "Fechar" },
+            },
           },
           events: {
             onRequestClose: () => onCloseRef.current(),
@@ -693,7 +696,7 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
 
     {/* OnlyOffice Editor — fullscreen dialog */}
     <Dialog open={isEditorOpen} onOpenChange={(open) => { if (!open) closeEditor(); }}>
-      <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col">
+      <DialogContent className="max-w-none w-screen h-screen p-0 m-0 rounded-none border-0 flex flex-col [&>button]:hidden">
         {editSession && (
           <OnlyOfficeEditor
             session={editSession}
@@ -702,6 +705,19 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Botão flutuante de fechar — fica acima do iframe do OnlyOffice */}
+    {isEditorOpen && (
+      <button
+        onClick={closeEditor}
+        title="Fechar editor e voltar ao Drive"
+        style={{ position: "fixed", top: 12, right: 12, zIndex: 99999 }}
+        className="flex items-center gap-1.5 bg-black/70 hover:bg-black/90 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg transition-colors backdrop-blur-sm"
+      >
+        <X className="w-3.5 h-3.5" />
+        Fechar
+      </button>
+    )}
     </>
   );
 }
