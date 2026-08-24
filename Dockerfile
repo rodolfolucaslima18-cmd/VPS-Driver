@@ -14,8 +14,8 @@ RUN apt-get update -qq && \
 
 RUN npm install -g pnpm@10 --quiet
 
-# Copia o código da aplicação do repositório (substitui o download do Replit)
-COPY app/ .
+# Copia o código da aplicação (respeitando .dockerignore)
+COPY . .
 
 RUN printf '{"onlyBuiltDependencies":["@swc/core","esbuild","msw","unrs-resolver"]}\n' > pnpm.json
 

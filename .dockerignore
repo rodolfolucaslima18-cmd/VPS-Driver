@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Dependências (reinstaladas no build)
+**/node_modules/
+
+# Builds anteriores
+**/dist/
+**/.turbo/
+
+# Arquivos sensíveis — NUNCA incluir na imagem
+.env
+.env.*
+
+# Dados de armazenamento do usuário
+storage/
+
+# Subdiretório legado do Replit (código está na raiz agora)
+app/
+
+# Assets de desenvolvimento
+attached_assets/
+
+# Documentação
+replit.md
+DEPLOY.md
+
+# Logs
+*.log
