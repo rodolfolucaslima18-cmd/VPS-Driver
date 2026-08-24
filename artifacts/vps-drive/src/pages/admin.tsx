@@ -41,7 +41,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  const data = await res.json();
+  // Verifica Content-Type antes de chamar res.json() para evitar erro
+  // quando o servidor retorna HTML (ex: nginx 502 durante restart do container)
+  const isJson = (res.headers.get("content-type") ?? "").includes("application/json");
+  const data = isJson ? await res.json() : null;
   if (!res.ok) {
     throw new Error(data?.error ?? `Erro ${res.status}`);
   }
