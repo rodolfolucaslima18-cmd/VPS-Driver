@@ -6,7 +6,7 @@ export const requireAuth = (
   next: NextFunction,
 ): void => {
   if (!req.session?.userId) {
-    res.status(401).json({ error: "Não autenticado." });
+    res.status(401).json({ error: "Atualize a página e faça o login novamente!" });
     return;
   }
   next();
@@ -18,7 +18,7 @@ export const requireMaster = (
   next: NextFunction,
 ): void => {
   if (!req.session?.userId) {
-    res.status(401).json({ error: "Não autenticado." });
+    res.status(401).json({ error: "Atualize a página e faça o login novamente!" });
     return;
   }
   if (req.session.role !== "master") {
