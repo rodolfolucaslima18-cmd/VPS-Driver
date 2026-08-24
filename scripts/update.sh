@@ -59,7 +59,8 @@ INSTALL_TYPE="unknown"
 
 if [[ -f "$INSTALL_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null; then
   # Verificar se containers do VPS Drive existem
-  if docker compose -f "$INSTALL_DIR/docker-compose.yml" ps --quiet 2>/dev/null | grep -q .; then
+  _proj="$(basename "$INSTALL_DIR")"
+  if docker compose --project-name "$_proj" -f "$INSTALL_DIR/docker-compose.yml" ps --quiet 2>/dev/null | grep -q .; then
     INSTALL_TYPE="docker"
   elif [[ ! -f "$INSTALL_DIR/package.json" ]]; then
     # docker-compose.yml existe mas containers não rodando — ainda é Docker
@@ -109,14 +110,20 @@ update_docker() {
   step "Reconstruindo imagem Docker com código atualizado..."
   cd "$INSTALL_DIR"
 
-  # Rebuild sem derrubar o banco (apenas app e nginx sobem novamente)
+  # O nome do projeto deve ser explícito para que o Docker Compose não use o
+  # hostname do container atual como prefixo (causa nomes como "abc123_projeto-app-1")
+  COMPOSE_PROJECT="$(basename "$INSTALL_DIR")"
+  export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
+
   # Injeta a data/hora atual como BUILD_DATE para aparecer no painel admin
   export BUILD_DATE="$(date '+%d/%m/%Y %H:%M')"
-  docker compose build app
+
+  # Rebuild sem derrubar o banco (apenas app e nginx sobem novamente)
+  docker compose --project-name "$COMPOSE_PROJECT" build app
   ok "Imagem reconstruída"
 
   step "Reiniciando containers..."
-  docker compose up -d --no-deps app nginx
+  docker compose --project-name "$COMPOSE_PROJECT" up -d --no-deps app nginx
   ok "Containers atualizados"
 
   step "Verificando saúde do servidor..."
@@ -124,7 +131,7 @@ update_docker() {
   for i in $(seq 1 20); do
     sleep 5
     # Verifica saúde via docker inspect (funciona de dentro do container via socket)
-    APP_ID=$(docker compose ps -q app 2>/dev/null | head -1)
+    APP_ID=$(docker compose --project-name "$COMPOSE_PROJECT" ps -q app 2>/dev/null | head -1)
     if [[ -n "$APP_ID" ]]; then
       HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$APP_ID" 2>/dev/null || echo "unknown")
       if [[ "$HEALTH" == "healthy" ]]; then
@@ -135,13 +142,13 @@ update_docker() {
       HEALTH="sem container"
     fi
     if [[ $i -eq 20 ]]; then
-      docker compose logs app --tail=20 2>/dev/null || true
+      docker compose --project-name "$COMPOSE_PROJECT" logs app --tail=20 2>/dev/null || true
       error "Servidor não ficou saudável após atualização. Veja os logs acima."
     fi
     echo "  Tentativa $i/20: health=$HEALTH — aguardando..."
   done
 
-  docker compose ps
+  docker compose --project-name "$COMPOSE_PROJECT" ps
 }
 
 # ============================================================
