@@ -612,7 +612,7 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
                       className="h-8 px-2.5 gap-1.5 text-xs"
                       onClick={openEditor}
                       disabled={editLoading}
-                      title="Editar com OnlyOffice — salva automaticamente no VPS Drive"
+                      title="Editar com OnlyOffice — salva automaticamente no Driver Private Storage"
                     >
                       {editLoading ? (
                         <Loader2 className="w-3 h-3 animate-spin" />

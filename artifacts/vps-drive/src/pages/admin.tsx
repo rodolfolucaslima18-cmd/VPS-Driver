@@ -412,7 +412,7 @@ export default function AdminPage() {
       <div className="w-60 border-r border-border bg-card/50 flex flex-col shrink-0">
         <div className="h-14 px-4 flex items-center gap-2 border-b border-border">
           <HardDrive className="w-5 h-5 text-primary" />
-          <span className="font-semibold tracking-tight">VPS Drive</span>
+          <span className="font-semibold tracking-tight">Driver Private Storage</span>
         </div>
 
         <div className="p-4 flex-1">

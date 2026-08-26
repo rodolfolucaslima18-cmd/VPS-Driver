@@ -38,7 +38,7 @@ export default function LandingPage() {
       <header className="px-6 h-16 flex items-center justify-between border-b border-border/50 sticky top-0 bg-background/80 backdrop-blur-md z-50">
         <div className="flex items-center gap-2 text-primary">
           <HardDrive className="w-6 h-6" />
-          <span className="font-semibold tracking-tight text-lg text-foreground">VPS Drive</span>
+          <span className="font-semibold tracking-tight text-lg text-foreground">Driver Private Storage</span>
         </div>
         <div className="flex items-center gap-4">
           <a href="#instalacao" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:block">
@@ -170,8 +170,8 @@ export default function LandingPage() {
               </div>
               <h2 className="text-2xl font-bold tracking-tight">OnlyOffice Document Server</h2>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                Permite abrir e editar arquivos <strong>.docx, .xlsx e .pptx</strong> diretamente no navegador, sem sair do VPS Drive.
-                Instalado separadamente do VPS Drive — requer <strong>Docker</strong> e aproximadamente <strong>1 GB de RAM extra</strong>.
+                Permite abrir e editar arquivos <strong>.docx, .xlsx e .pptx</strong> diretamente no navegador, sem sair do Driver Private Storage.
+                Instalado separadamente do Driver Private Storage — requer <strong>Docker</strong> e aproximadamente <strong>1 GB de RAM extra</strong>.
                 Pode ser instalado a qualquer momento após a instalação principal.
               </p>
             </div>
@@ -192,7 +192,7 @@ export default function LandingPage() {
                 </p>
                 <CopyCommand cmd={installOoCmd} />
                 <p className="text-xs text-muted-foreground">
-                  O instalador configura o Docker, baixa a imagem (~1 GB), cria o serviço de auto-start e atualiza o VPS Drive automaticamente. Pode levar 2–5 minutos.
+                  O instalador configura o Docker, baixa a imagem (~1 GB), cria o serviço de auto-start e atualiza o Driver Private Storage automaticamente. Pode levar 2–5 minutos.
                 </p>
               </div>
             </div>
@@ -210,7 +210,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="py-6 text-center text-sm text-muted-foreground border-t border-border/50">
-        &copy; {new Date().getFullYear()} VPS Drive. Todos os direitos reservados.
+        &copy; {new Date().getFullYear()} Driver Private Storage. Todos os direitos reservados.
       </footer>
     </div>
   );

@@ -56,7 +56,7 @@ export default function SignInPage() {
               <HardDrive className="w-8 h-8" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Bem-vindo ao VPS Drive</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Bem-vindo ao Driver Private Storage</h1>
           <p className="text-muted-foreground text-sm">Entre para acessar seus arquivos</p>
         </div>
 

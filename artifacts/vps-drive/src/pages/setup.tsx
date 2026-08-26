@@ -116,7 +116,7 @@ export default function SetupPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Primeiro Acesso</h1>
           <p className="text-muted-foreground text-sm">
-            Crie o usuário administrador para começar a usar o VPS Drive.
+            Crie o usuário administrador para começar a usar o Driver Private Storage.
           </p>
         </div>
 
