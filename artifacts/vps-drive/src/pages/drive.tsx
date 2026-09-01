@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Search
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -52,6 +52,7 @@ type FileItem = {
   modifiedAt: string;
   mimeType: string | null;
   hasPassword?: boolean;
+  parentPath?: string; // preenchido nos resultados de busca
 };
 
 const IMAGE_TYPES = ["image/jpeg","image/png","image/gif","image/webp","image/svg+xml","image/bmp"];
@@ -130,6 +131,12 @@ export default function DrivePage() {
   const [folderToSetPwd, setFolderToSetPwd] = useState<FileItem | null>(null);
   const [setPwdValue, setSetPwdValue] = useState("");
   const [setPwdLoading, setSetPwdLoading] = useState(false);
+
+  // ── Busca ──────────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<FileItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +182,32 @@ export default function DrivePage() {
       setTimeout(() => newFolderInputRef.current?.focus(), 50);
     }
   }, [newFolderMode]);
+
+  // Busca com debounce de 350ms
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/files/search?q=${encodeURIComponent(q)}`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          setSearchResults(await res.json());
+        }
+      } catch {
+        // ignora erros de rede
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const doUpload = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -614,6 +647,28 @@ export default function DrivePage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-4">
+            {/* Barra de busca */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Buscar arquivos..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setSearchQuery(""); }}
+                className="h-8 pl-8 pr-7 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-all focus:w-56"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
             {uploadProgress && (
               <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>
             )}
@@ -654,8 +709,59 @@ export default function DrivePage() {
           </div>
         )}
 
+        {/* Resultados de busca — sobrepõe o grid quando há query */}
+        {searchQuery.trim().length >= 2 && (
+          <div className="flex-1 overflow-auto p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Search className="w-4 h-4" />
+              {searchLoading ? (
+                <span>Buscando...</span>
+              ) : (
+                <span>{searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para <strong>"{searchQuery}"</strong></span>
+              )}
+            </div>
+            {!searchLoading && searchResults.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                <Search className="w-8 h-8 opacity-30" />
+                <p className="text-sm">Nenhum arquivo encontrado</p>
+              </div>
+            )}
+            <div className="space-y-1">
+              {searchResults.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => {
+                    if (item.type === "directory") {
+                      setCurrentPath(item.path);
+                      setSearchQuery("");
+                    } else {
+                      setPreviewItem(item);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent transition-colors text-left group"
+                >
+                  {item.type === "directory" ? (
+                    <Folder className="w-5 h-5 text-primary shrink-0" />
+                  ) : (
+                    <File className="w-5 h-5 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {item.parentPath || "Raiz"}
+                    </p>
+                  </div>
+                  {item.type === "file" && (
+                    <span className="text-xs text-muted-foreground shrink-0">{formatSize(item.size)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* File grid */}
-        <div className="flex-1 overflow-auto p-5">
+        <div className={`flex-1 overflow-auto p-5 ${searchQuery.trim().length >= 2 ? "hidden" : ""}`}>
           {/* New folder input row */}
           {newFolderMode && (
             <div className="mb-4 flex items-center gap-2 p-2 rounded-lg border border-primary/40 bg-card w-fit">

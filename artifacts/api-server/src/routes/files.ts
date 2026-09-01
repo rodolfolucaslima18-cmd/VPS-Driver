@@ -136,6 +136,56 @@ router.get("/files", requireAuth, async (req, res): Promise<void> => {
   );
 });
 
+// GET /files/search — busca recursiva de arquivos e pastas pelo nome
+router.get("/files/search", requireAuth, async (req, res): Promise<void> => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q || q.length < 2) {
+    res.json([]);
+    return;
+  }
+
+  const lower = q.toLowerCase();
+  const results: (import("../lib/storage").FileItem & { parentPath: string })[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    if (results.length >= 100) return; // limite de segurança
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const absEntry = path.join(dir, entry.name);
+      if (entry.name.toLowerCase().includes(lower)) {
+        try {
+          const stats = await fs.stat(absEntry);
+          const item = buildFileItem(absEntry, stats);
+          const rel = item.path;
+          const parentPath = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+          results.push({ ...item, parentPath });
+        } catch {
+          // ignora entradas inacessíveis
+        }
+      }
+      if (entry.isDirectory()) {
+        await walk(absEntry);
+      }
+    }
+  }
+
+  await walk(STORAGE_ROOT);
+
+  // Ordena: pastas primeiro, depois arquivos; ambos por nome
+  results.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  res.json(results);
+});
+
 // GET /files/download — download a file
 router.get("/files/download", requireAuth, async (req, res): Promise<void> => {
   const rawPath = typeof req.query.path === "string" ? req.query.path : "";
