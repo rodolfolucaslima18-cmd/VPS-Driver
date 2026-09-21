@@ -99,6 +99,24 @@ export const RenameItemResponse = zod.object({
 
 
 /**
+ * @summary Copy a file or folder
+ */
+export const CopyItemBody = zod.object({
+  "sourcePath": zod.string().describe('Source path relative to storage root'),
+  "destinationPath": zod.string().describe('Destination path relative to storage root')
+})
+
+export const CopyItemResponse = zod.object({
+  "name": zod.string().describe('File or folder name'),
+  "path": zod.string().describe('Path relative to storage root'),
+  "type": zod.enum(['file', 'directory']),
+  "size": zod.number().describe('Size in bytes (0 for directories)'),
+  "modifiedAt": zod.string().describe('ISO 8601 last modified timestamp'),
+  "mimeType": zod.string().nullish().describe('MIME type for files')
+})
+
+
+/**
  * Returns total file count, total size, and recent uploads
  * @summary Get storage statistics
  */

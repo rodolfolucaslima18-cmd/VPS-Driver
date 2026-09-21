@@ -21,6 +21,7 @@ import {
   DeleteItemQueryParams,
   CreateDirectoryBody,
   RenameItemBody,
+  CopyItemBody,
 } from "@workspace/api-zod";
 // ── Periodic cleanup of expired tokens in DB ─────────────────
 setInterval(async () => {
@@ -378,6 +379,56 @@ router.patch("/files/rename", requireAuth, async (req, res): Promise<void> => {
 
   const stats = await fs.stat(newAbs);
   res.json(buildFileItem(newAbs, stats));
+});
+
+// POST /files/copy — copy file or folder recursively
+router.post("/files/copy", requireAuth, async (req, res): Promise<void> => {
+  const parsed = CopyItemBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  let srcAbs: string;
+  let destAbs: string;
+  try {
+    srcAbs = resolveStoragePath(parsed.data.sourcePath);
+    destAbs = resolveStoragePath(parsed.data.destinationPath);
+  } catch {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+
+  if (!existsSync(srcAbs)) {
+    res.status(404).json({ error: "Source file or folder not found" });
+    return;
+  }
+
+  if (existsSync(destAbs)) {
+    res.status(400).json({ error: "Destination path already exists" });
+    return;
+  }
+
+  // Prevent copying a folder into itself
+  const srcNorm = srcAbs.endsWith(path.sep) ? srcAbs : srcAbs + path.sep;
+  if (destAbs.startsWith(srcNorm)) {
+    res.status(400).json({ error: "Cannot copy a folder into itself" });
+    return;
+  }
+
+  // Ensure parent directory exists
+  await fs.mkdir(path.dirname(destAbs), { recursive: true });
+
+  try {
+    await fs.cp(srcAbs, destAbs, { recursive: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Não foi possível copiar: ${msg}` });
+    return;
+  }
+
+  const stats = await fs.stat(destAbs);
+  res.status(201).json(buildFileItem(destAbs, stats));
 });
 
 // DELETE /files — delete file or folder

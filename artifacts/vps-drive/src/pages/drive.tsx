@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   HardDrive, Folder, File, Upload, LogOut, ChevronRight,
   Pencil, Trash2, MoreVertical, FolderPlus, X, Check, Users, Share2, FolderUp,
-  LayoutGrid, List, Lock, KeyRound, ShieldOff, Search
+  LayoutGrid, List, Lock, KeyRound, ShieldOff, Search, Copy, Scissors, ClipboardPaste
 } from "lucide-react";
 import { ShareModal } from "@/components/ShareModal";
 import { useAuth, logout } from "@/lib/auth";
@@ -131,6 +131,10 @@ export default function DrivePage() {
   const [folderToSetPwd, setFolderToSetPwd] = useState<FileItem | null>(null);
   const [setPwdValue, setSetPwdValue] = useState("");
   const [setPwdLoading, setSetPwdLoading] = useState(false);
+
+  // ── Clipboard (copiar/recortar) ────────────────────────────────────────────
+  type ClipboardEntry = { item: FileItem; mode: "copy" | "cut" };
+  const [clipboard, setClipboard] = useState<ClipboardEntry | null>(null);
 
   // ── Busca ──────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
@@ -385,6 +389,93 @@ export default function DrivePage() {
       setRenamingValue("");
     }
   }, [renamingPath, renamingValue, renameMutation, invalidate, toast]);
+
+  const handleCopy = useCallback((file: FileItem) => {
+    setClipboard({ item: file, mode: "copy" });
+    toast({ title: "Copiado", description: `"${file.name}" pronto para colar` });
+  }, [toast]);
+
+  const handleCut = useCallback((file: FileItem) => {
+    setClipboard({ item: file, mode: "cut" });
+    toast({ title: "Recortado", description: `"${file.name}" pronto para mover` });
+  }, [toast]);
+
+  const handlePaste = useCallback(async () => {
+    if (!clipboard) return;
+    const { item, mode } = clipboard;
+    const basename = item.name;
+
+    // Calcula nome de destino sem conflito
+    const existingNames = new Set((files ?? []).map((f) => f.name));
+    let destName = basename;
+    if (existingNames.has(destName)) {
+      const ext = destName.includes(".") && item.type === "file"
+        ? "." + destName.split(".").pop()
+        : "";
+      const base = ext ? destName.slice(0, destName.length - ext.length) : destName;
+      let n = 2;
+      destName = `${base}_cópia${ext}`;
+      while (existingNames.has(destName)) {
+        destName = `${base}_cópia_${n}${ext}`;
+        n++;
+      }
+    }
+
+    const destinationPath = currentPath ? `${currentPath}/${destName}` : destName;
+
+    // Impede mover/copiar pasta para dentro de si mesma
+    if (item.type === "directory") {
+      const srcNorm = item.path.endsWith("/") ? item.path : item.path + "/";
+      if (destinationPath.startsWith(srcNorm) || destinationPath === item.path) {
+        toast({ title: "Operação inválida", description: "Não é possível colar uma pasta dentro dela mesma.", variant: "destructive" });
+        return;
+      }
+    }
+
+    try {
+      if (mode === "copy") {
+        const res = await fetch(`${BASE_URL}/api/files/copy`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourcePath: item.path, destinationPath }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
+        }
+        toast({ title: "Copiado com sucesso", description: `"${destName}" adicionado a esta pasta` });
+      } else {
+        // cut = mover via rename
+        await renameMutation.mutateAsync({ data: { oldPath: item.path, newPath: destinationPath } });
+        setClipboard(null); // limpa após mover
+        toast({ title: "Movido com sucesso", description: `"${destName}" movido para esta pasta` });
+      }
+      invalidate();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({ title: "Falha ao colar", description: msg, variant: "destructive" });
+    }
+  }, [clipboard, currentPath, files, renameMutation, invalidate, toast]);
+
+  // Atalhos de teclado: Ctrl+C / Ctrl+X no item focado não são possíveis sem foco,
+  // mas Ctrl+V cola quando há clipboard e nenhum input está focado
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      if (e.key === "v" && clipboard) {
+        e.preventDefault();
+        handlePaste();
+      }
+      if (e.key === "Escape") {
+        setClipboard(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clipboard, handlePaste]);
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const onDragLeave = (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
@@ -683,6 +774,26 @@ export default function DrivePage() {
             >
               {viewMode === "grid" ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
             </button>
+            {clipboard && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 border-primary/60 text-primary hover:bg-primary/10"
+                onClick={handlePaste}
+                title={`${clipboard.mode === "cut" ? "Mover" : "Copiar"} "${clipboard.item.path}" para cá`}
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                {clipboard.mode === "cut" ? "Mover" : "Colar"}
+                <span className="max-w-[100px] truncate text-xs opacity-70">"{clipboard.item.name}"</span>
+                <button
+                  className="ml-0.5 hover:opacity-100 opacity-50"
+                  onClick={(e) => { e.stopPropagation(); setClipboard(null); }}
+                  title="Cancelar"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </Button>
+            )}
             <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setNewFolderMode(true)}>
               <FolderPlus className="w-3.5 h-3.5" />
               Nova Pasta
@@ -800,7 +911,7 @@ export default function DrivePage() {
                 {files.map((file) => (
                   <div
                     key={file.path}
-                    className="group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none"
+                    className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border border-border bg-card hover:bg-accent/40 hover:border-accent-foreground/20 transition-all cursor-pointer select-none${clipboard?.item.path === file.path && clipboard.mode === "cut" ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (file.type === "directory") openFolder(file as FileItem);
@@ -830,6 +941,12 @@ export default function DrivePage() {
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem className="gap-2" onClick={() => handleCopy(file as FileItem)}>
+                          <Copy className="w-3.5 h-3.5" />Copiar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2" onClick={() => handleCut(file as FileItem)}>
+                          <Scissors className="w-3.5 h-3.5" />Recortar
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>
@@ -888,7 +1005,7 @@ export default function DrivePage() {
                 {files.map((file, idx) => (
                   <div
                     key={file.path}
-                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}`}
+                    className={`group grid grid-cols-[auto_1fr_80px_80px_36px] gap-x-3 px-3 py-2 items-center cursor-pointer hover:bg-accent/40 transition-colors select-none${idx > 0 ? " border-t border-border/50" : ""}${clipboard?.item.path === file.path && clipboard.mode === "cut" ? " opacity-40" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-nomenu]")) return;
                       if (file.type === "directory") openFolder(file as FileItem);
@@ -955,6 +1072,12 @@ export default function DrivePage() {
                             {(file as FileItem).hasPassword ? "Alterar/remover senha" : "Definir senha"}
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem className="gap-2" onClick={() => handleCopy(file as FileItem)}>
+                          <Copy className="w-3.5 h-3.5" />Copiar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="gap-2" onClick={() => handleCut(file as FileItem)}>
+                          <Scissors className="w-3.5 h-3.5" />Recortar
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="gap-2" onClick={() => { setRenamingPath(file.path); setRenamingValue(file.name); }}>
                           <Pencil className="w-3.5 h-3.5" />Renomear
                         </DropdownMenuItem>

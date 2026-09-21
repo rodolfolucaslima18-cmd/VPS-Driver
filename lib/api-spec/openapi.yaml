@@ -199,6 +199,36 @@ paths:
         "404":
           description: Not found
 
+  /files/copy:
+    post:
+      operationId: copyItem
+      tags: [files]
+      summary: Copy a file or folder
+      description: Recursively copies a file or folder to a new path within the storage root
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CopyInput"
+      responses:
+        "201":
+          description: Copied successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileItem"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
   /files/preview:
     get:
       operationId: previewFile
@@ -305,6 +335,17 @@ components:
         newPath:
           type: string
           description: New path relative to storage root
+
+    CopyInput:
+      type: object
+      required: [sourcePath, destinationPath]
+      properties:
+        sourcePath:
+          type: string
+          description: Source path relative to storage root
+        destinationPath:
+          type: string
+          description: Destination path relative to storage root
 
     StorageStats:
       type: object

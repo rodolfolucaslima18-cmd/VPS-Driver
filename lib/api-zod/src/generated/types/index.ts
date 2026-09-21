@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './copyInput';
 export * from './deleteItemParams';
 export * from './directoryInput';
 export * from './downloadFileParams';
