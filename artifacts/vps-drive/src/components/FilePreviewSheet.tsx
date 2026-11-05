@@ -48,8 +48,10 @@ function getExt(name: string): string {
   return idx >= 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-// "docx"  → DocxViewer    (docx-preview client-side, OOXML)
-// "doc"   → DocHtmlViewer (mammoth server-side; graceful fallback for binary .doc)
+// "docx"  → DocxViewer         (docx-preview client-side, OOXML)
+// "doc"   → OnlyOfficeDocPreview (OnlyOffice document server, read-only; auto-
+//           converts legacy binary .doc. Falls back to mammoth-based
+//           DocHtmlViewer if ONLYOFFICE_URL isn't configured)
 // "xlsx"  → XlsxViewer   (SheetJS)
 // "pptx"  → PptxFallback (download/online only)
 type OfficeKind = "docx" | "doc" | "xlsx" | "pptx" | null;
@@ -347,7 +349,17 @@ function getDocumentType(fileType: string): string {
   return "word";
 }
 
-function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose: () => void }) {
+function OnlyOfficeEditor({
+  session,
+  onClose,
+  readOnly = false,
+  instanceId = "onlyoffice-editor-container",
+}: {
+  session: EditSession;
+  onClose: () => void;
+  readOnly?: boolean;
+  instanceId?: string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const instanceRef = useRef<any>(null);
@@ -377,14 +389,18 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
             key: session.key,
             title: session.fileName,
             url: session.fileUrl,
+            // Read-only preview: OnlyOffice still auto-converts legacy formats
+            // (.doc/.xls/.ppt) internally, it just won't accept edits back.
+            permissions: readOnly ? { edit: false, download: true, print: true } : undefined,
           },
           documentType: getDocumentType(session.fileType),
           editorConfig: {
-            callbackUrl: session.callbackUrl,
+            mode: readOnly ? "view" : "edit",
+            callbackUrl: readOnly ? undefined : session.callbackUrl,
             lang: "pt-BR",
-            customization: {
-              close: { visible: true, text: "Fechar" },
-            },
+            customization: readOnly
+              ? { close: { visible: false } }
+              : { close: { visible: true, text: "Fechar" } },
           },
           events: {
             onRequestClose: () => onCloseRef.current(),
@@ -459,8 +475,60 @@ function OnlyOfficeEditor({ session, onClose }: { session: EditSession; onClose:
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
       <div
         ref={containerRef}
-        id="onlyoffice-editor-container"
+        id={instanceId}
         style={{ flex: 1, minHeight: 0 }}
+      />
+    </div>
+  );
+}
+
+// ── DOC Preview (OnlyOffice, read-only) ──────────────────────────────────────
+// Legacy binary .doc files can't be parsed by mammoth (it only understands
+// OOXML .docx), so previewing them goes through the same OnlyOffice document
+// server used for editing: it converts the file internally and renders it,
+// the same way DOCX gets rendered via docx-preview. This makes the "doesn't
+// read .doc" case go away without the user having to click "Editar" first.
+// Falls back to the mammoth-based DocHtmlViewer if OnlyOffice isn't configured.
+
+function OnlyOfficeDocPreview({ file }: { file: FileItem }) {
+  const [session, setSession] = useState<EditSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSession(null);
+    setError(null);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/files/edit-session?path=${encodeURIComponent(file.path)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as EditSession;
+        if (!cancelled) setSession(data);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erro ao abrir documento");
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [file.path]);
+
+  if (error) return <ViewerError message={error} />;
+  if (!session) return <ViewerLoading />;
+
+  return (
+    <div className="flex-1 min-h-0" style={{ minHeight: "calc(100vh - 220px)" }}>
+      <OnlyOfficeEditor
+        session={session}
+        onClose={() => {}}
+        readOnly
+        instanceId="onlyoffice-preview-container"
       />
     </div>
   );
@@ -634,7 +702,9 @@ export function FilePreviewSheet({ file, onClose, onRefresh }: FilePreviewSheetP
 
             <div className="flex-1 overflow-auto p-6 flex flex-col min-h-0">
               {officeKind === "docx" && <DocxViewer file={file} />}
-              {officeKind === "doc" && <DocHtmlViewer file={file} />}
+              {officeKind === "doc" && (
+                ONLYOFFICE_URL ? <OnlyOfficeDocPreview file={file} /> : <DocHtmlViewer file={file} />
+              )}
               {officeKind === "xlsx" && <XlsxViewer file={file} />}
               {officeKind === "pptx" && <PptxFallback file={file} />}
 
