@@ -1,0 +1,9 @@
+# Cron job para renovar o certificado SSL (Let's Encrypt) automaticamente.
+# O certbot só renova de fato quando o certificado está a menos de 30 dias
+# de expirar — por isso é seguro rodar todo dia sem gerar renovações extras.
+#
+# Instalação (uma vez):
+#   sudo cp /opt/vps-drive-repo/scripts/vps-drive-ssl-renew.cron /etc/cron.d/vps-drive-ssl-renew
+#   sudo chmod 644 /etc/cron.d/vps-drive-ssl-renew
+#
+17 3 * * * root /opt/vps-drive-repo/scripts/renew-ssl.sh >> /var/log/vps-drive-ssl-renew.log 2>&1

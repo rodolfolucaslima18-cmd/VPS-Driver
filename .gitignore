@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# HTTPS — certificados e desafios do Let's Encrypt (gerados no servidor, não versionados)
+/certbot/conf/
+/certbot/www/

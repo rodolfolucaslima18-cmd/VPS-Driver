@@ -18,7 +18,7 @@ services:
     build:
       context: .
       args:
-        VITE_ONLYOFFICE_URL: http://${VPS_HOST}/onlyoffice
+        VITE_ONLYOFFICE_URL: https://${VPS_HOST}/onlyoffice
         BUILD_DATE: ${BUILD_DATE:-}
     restart: unless-stopped
     depends_on:
@@ -30,10 +30,10 @@ services:
       STORAGE_PATH: /data
       PORT: 5000
       NODE_ENV: production
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
       BASE_PATH: /
       VPS_HOST: ${VPS_HOST}
-      ONLYOFFICE_URL: http://${VPS_HOST}/onlyoffice
+      ONLYOFFICE_URL: https://${VPS_HOST}/onlyoffice
       # Diretório de instalação no host — usado pelo botão "Atualizar agora"
       VPS_DRIVE_DIR: /opt/vps-drive-repo
     volumes:
@@ -60,9 +60,14 @@ services:
         condition: service_healthy
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - frontend_dist:/usr/share/nginx/html:ro
+      # Webroot do desafio ACME (Let's Encrypt) — compartilhado com o container certbot
+      - ./certbot/www:/var/www/certbot:ro
+      # Certificados emitidos pelo certbot (fullchain.pem / privkey.pem)
+      - ./certbot/conf:/etc/letsencrypt:ro
 
   onlyoffice:
     image: onlyoffice/documentserver
